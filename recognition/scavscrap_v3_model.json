@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0.0",
+  "model_identifier": "ScavScrap v3 fine-tuned YOLO11n (training/weights/scavscrap_v3_best.pt, mAP50 0.612, 14 classes)",
+  "weights_filename": "scavscrap_v3_best.pt",
+  "task": "object_detection",
+  "dataset": "training/datasets/scavscrap (26,301 images, 14 classes, see training/HANDOFF.md)",
+  "open_vocabulary": false,
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.7
+  },
+  "expected_builtin_classes": [
+    "laptop", "desktop_computer_tower", "monitor", "printer", "projector",
+    "keyboard", "mouse", "phone", "tablet", "tv", "router",
+    "headphones", "speaker", "watch"
+  ],
+  "raw_to_project_mapping": {
+    "laptop": "laptop",
+    "desktop_computer_tower": "desktop_computer_tower",
+    "monitor": "monitor",
+    "printer": "printer",
+    "projector": "projector"
+  },
+  "target_support": {
+    "laptop": {
+      "status": "supported_exact",
+      "raw_class_names": ["laptop"],
+      "reason": "Trained class named after the project class."
+    },
+    "desktop_computer_tower": {
+      "status": "supported_exact",
+      "raw_class_names": ["desktop_computer_tower"],
+      "reason": "Trained class named after the project class."
+    },
+    "monitor": {
+      "status": "supported_exact",
+      "raw_class_names": ["monitor"],
+      "reason": "Trained class named after the project class; tv is a separate trained class."
+    },
+    "printer": {
+      "status": "supported_exact",
+      "raw_class_names": ["printer"],
+      "reason": "Trained class named after the project class."
+    },
+    "projector": {
+      "status": "supported_exact",
+      "raw_class_names": ["projector"],
+      "reason": "Trained class named after the project class."
+    }
+  },
+  "sources": [
+    "training/HANDOFF.md"
+  ]
+}
