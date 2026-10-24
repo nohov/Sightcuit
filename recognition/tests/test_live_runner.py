@@ -238,6 +238,12 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertIs(runner.track_at(tracks, 20, 20), laptop)
         self.assertIsNone(runner.track_at(tracks, 400, 20))
 
+    def test_description_panel_is_drawn_at_the_bottom(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        runner.draw_description(frame, "Apple iPhone", "word " * 60)
+        self.assertEqual(frame[:200].sum(), 0)
+        self.assertGreater(frame[-40:].sum(), 0)
+
     def test_each_region_gets_a_full_resolution_close_up(self):
         transport = FakeTransport()
         run([[row(A), row(B, 0.8)]], transport)

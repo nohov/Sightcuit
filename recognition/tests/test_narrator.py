@@ -56,7 +56,8 @@ class NarratorTests(unittest.TestCase):
             self.played.append(path)
             return FakeProcess()
 
-        return narrator.Narrator(self.cache, describe or default_describe, speak, play, SyncExecutor())
+        return narrator.Narrator(self.cache, describe or default_describe, speak, self.cache / "voice", play,
+                                 SyncExecutor())
 
     def test_clip_is_made_once_kept_on_disk_and_played(self):
         n = self.make()
@@ -65,9 +66,9 @@ class NarratorTests(unittest.TestCase):
         self.assertEqual(self.described, ["Apple iPhone"])
         self.assertEqual(self.spoken, ["The Apple iPhone is a device."])
         self.assertEqual(n.wav("Apple iPhone").read_bytes(), WAV)
-        self.assertEqual(n.wav("Apple iPhone").with_suffix(".txt").read_text(), "The Apple iPhone is a device.\n")
+        self.assertEqual(n.description("Apple iPhone"), "The Apple iPhone is a device.")
         self.assertEqual(n.click("Apple iPhone"), "playing")
-        self.assertEqual(self.played, [self.cache / "apple-iphone.wav"])
+        self.assertEqual(self.played, [self.cache / "voice" / "apple-iphone.wav"])
         # A new run reuses the clip on disk without calling Gemini or ElevenLabs.
         again = self.make()
         again.prepare("Apple iPhone")
@@ -102,10 +103,24 @@ class NarratorTests(unittest.TestCase):
         self.assertEqual(n.click("wireless earbuds"), "playing")
 
     def test_unready_click_while_making_is_pending(self):
-        n = narrator.Narrator(self.cache, lambda label: "x", lambda text: WAV, lambda path: None,
+        n = narrator.Narrator(self.cache, lambda label: "x",
                               executor=type("Held", (), {"submit": lambda self, *a: Future()})())
         n.prepare("laptop")
         self.assertEqual(n.click("laptop"), "pending")
+
+    def test_text_only_until_audio_is_turned_on_then_text_is_reused(self):
+        text_only = narrator.Narrator(self.cache, lambda label: self.described.append(label) or "A laptop.",
+                                      executor=SyncExecutor())
+        text_only.prepare("laptop")
+        self.assertTrue(text_only.ready("laptop"))
+        self.assertEqual(text_only.click("laptop"), "shown")
+        self.assertEqual(text_only.description("laptop"), "A laptop.")
+        voiced = self.make()
+        self.assertFalse(voiced.ready("laptop"))
+        voiced.prepare("laptop")
+        self.assertEqual(self.described, ["laptop"])  # Gemini not asked again
+        self.assertEqual(self.spoken, ["A laptop."])
+        self.assertEqual(voiced.click("laptop"), "playing")
 
     def test_slug_is_safe_for_any_label(self):
         self.assertEqual(narrator.slug("Apple MacBook / Pro?"), "apple-macbook-pro")

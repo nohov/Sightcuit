@@ -198,6 +198,12 @@ prompt in `recognition/prompt-live-v2.txt`, tested in
 - Tracking: a same-class box near a track's last position continues it, and a
   track survives ~1.5 s unseen. Before this, a hand-held phone got 13 track IDs
   in 76 s and Gemini answers landed on dead tracks.
+- Descriptions: each named box gets a 2-3 sentence description from Gemini
+  (text only, no image; `recognition/narrator.py`, cached per label in
+  `cache/narration/`). `[click]` on the label means it is ready; clicking the
+  box shows it in a panel. Audio via ElevenLabs is built but off until
+  `ELEVENLABS_API_KEY` is set (`--voice-id`, `--tts-model`); not yet tested
+  against the real ElevenLabs API.
 - Each frame is appended to `evaluation/live_predictions.jsonl` (gitignored);
   analyse it to debug what was detected, sent and answered.
 

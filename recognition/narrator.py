@@ -1,4 +1,4 @@
-"""Spoken descriptions of identified products: Gemini writes a short text, ElevenLabs voices it, cached on disk."""
+"""Descriptions of identified products: Gemini writes a short text, optionally voiced by ElevenLabs; cached."""
 
 from __future__ import annotations
 
@@ -77,32 +77,45 @@ def slug(label: str) -> str:
 
 
 class Narrator:
-    """One clip per label, made once in the background and kept on disk, so repeat items and runs cost nothing.
+    """A description per label, written once in the background and kept on disk, so repeat items and runs cost
+    nothing. With speak and audio_dir it is also voiced; texts are shared across voices.
 
     prepare() and click() are called only from the display thread; the worker only writes files.
     """
 
-    def __init__(self, cache_dir: Path, describe: Callable[[str], str], speak: Callable[[str], bytes],
-                 play: Callable[[Path], Any] = play_wav, executor: Executor | None = None) -> None:
-        self.cache_dir = cache_dir
+    def __init__(self, text_dir: Path, describe: Callable[[str], str], speak: Callable[[str], bytes] | None = None,
+                 audio_dir: Path | None = None, play: Callable[[Path], Any] = play_wav,
+                 executor: Executor | None = None) -> None:
+        if (speak is None) != (audio_dir is None):
+            raise ValueError("speak and audio_dir go together")
+        self.text_dir, self.audio_dir = text_dir, audio_dir
         self.describe, self.speak, self.play = describe, speak, play
         self.pool = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="narrator")
         self.jobs: dict[str, Future] = {}
         self.playing: Any = None
 
+    def text_path(self, label: str) -> Path:
+        return self.text_dir / f"{slug(label)}.txt"
+
     def wav(self, label: str) -> Path:
-        return self.cache_dir / f"{slug(label)}.wav"
+        assert self.audio_dir is not None
+        return self.audio_dir / f"{slug(label)}.wav"
 
     def ready(self, label: str) -> bool:
-        return self.wav(label).exists()
+        return self.text_path(label).exists() and (self.speak is None or self.wav(label).exists())
+
+    def description(self, label: str) -> str | None:
+        return self.text_path(label).read_text(encoding="utf-8").strip() if self.text_path(label).exists() else None
 
     def prepare(self, label: str) -> None:
-        """Start making the clip unless it exists or was already tried; a failure waits for a click to retry."""
+        """Start making the description unless it exists or was already tried; a failure waits for a click."""
         if label not in self.jobs and not self.ready(label):
             self.jobs[label] = self.pool.submit(self._make, label)
 
     def click(self, label: str) -> str:
         if self.ready(label):
+            if self.speak is None:
+                return "shown"
             self.stop()
             self.playing = self.play(self.wav(label))
             return "playing"
@@ -122,14 +135,21 @@ class Narrator:
 
     def _make(self, label: str) -> None:
         try:
-            text = self.describe(label)
-            audio = self.speak(text)
+            text = self.description(label)
+            if text is None:
+                text = self.describe(label)
+                _write(self.text_path(label), (text + "\n").encode("utf-8"))
+                logging.info("Description ready label=%r text=%r", label, text)
+            if self.speak is not None:
+                _write(self.wav(label), self.speak(text))
+                logging.info("Audio ready label=%r", label)
         except Exception:
-            logging.exception("Narration failed label=%r", label)
+            logging.exception("Description failed label=%r", label)
             raise
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.wav(label).with_suffix(".txt").write_text(text + "\n", encoding="utf-8")
-        partial = self.wav(label).with_suffix(".part")
-        partial.write_bytes(audio)
-        os.replace(partial, self.wav(label))  # ready() never sees a half-written clip
-        logging.info("Narration ready label=%r text=%r", label, text)
+
+
+def _write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_suffix(".part")
+    partial.write_bytes(data)
+    os.replace(partial, path)  # ready() never sees a half-written file

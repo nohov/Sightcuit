@@ -89,7 +89,11 @@ never an exact model, else a generic type ("smartphone") plus a hint for the use
 ("move closer", "improve lighting", "hold still", "show the logo side"). Gemini
 sees the full frame and a full-resolution close-up of each box. Generic labels are
 re-asked every 10 s while in view. Boxes show at once in yellow with the
-detector class, turn green with Gemini's name, and disappear if Gemini says "none". Press `q` to quit:
+detector class, turn green with Gemini's name, and disappear if Gemini says "none".
+Each named box also gets a 2-3 sentence description (`recognition/narrator.py`,
+prompt `recognition/prompt-describe-v1.txt`, cached in `cache/narration/`); the
+label shows `[click]` when it is ready and clicking the box shows it in a panel.
+With `ELEVENLABS_API_KEY` set, the click also plays it as audio. Press `q` to quit:
 
 ```sh
 set -a; . ./.env; set +a

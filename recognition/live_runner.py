@@ -15,6 +15,7 @@ from pathlib import Path
 import platform
 import shlex
 import sys
+import textwrap
 import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
@@ -391,14 +392,25 @@ def draw_tracks(frame: Any, tracks: list[dict[str, Any]], playable: Callable[[st
             text, color = f"#{track['track_id']} {track['proposal']['raw_class_name']}...", (0, 220, 255)
         else:
             hint = f" - {track['hint']}" if track["hint"] else ""
-            play = " [play]" if playable(track["label"]) else ""
-            text, color = f"#{track['track_id']} {track['label']}{hint}{play}", (0, 200, 0)
+            more = " [click]" if playable(track["label"]) else ""
+            text, color = f"#{track['track_id']} {track['label']}{hint}{more}", (0, 200, 0)
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, text, (x1, max(y1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
-WINDOW = "scavscrap live (click a box to hear it, q quits)"
+WINDOW = "scavscrap live (click a box for its description, q quits)"
+
+
+def draw_description(frame: Any, title: str, text: str) -> None:
+    """Title and wrapped text on a dark panel along the bottom of the frame."""
+    scale, line_height = 0.6, 24
+    lines = [title, *textwrap.wrap(text, width=max(20, frame.shape[1] // 11))]
+    top = frame.shape[0] - line_height * len(lines) - 12
+    cv2.rectangle(frame, (0, top), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
+    for index, line in enumerate(lines):
+        cv2.putText(frame, line, (10, top + line_height * (index + 1)), cv2.FONT_HERSHEY_SIMPLEX, scale,
+                    (0, 200, 0) if index == 0 else (255, 255, 255), 1, cv2.LINE_AA)
 
 
 def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
@@ -406,7 +418,8 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
     """Show every camera frame at camera speed while detection runs on the newest frame in a worker thread.
 
     Boxes are the last finished detection, so they trail a moving device by up to one inference.
-    With a narrator, every named box gets a spoken description made in the background; clicking it plays it.
+    With a narrator, every named box gets a description made in the background; clicking the box shows it (and
+    plays it when audio is on); clicking elsewhere hides it.
     """
     latest = LatestFrame()
     shown: dict[str, list[dict[str, Any]]] = {"tracks": []}
@@ -422,9 +435,15 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
         except BaseException as exc:
             failure.append(exc)
 
+    selected: dict[str, str | None] = {"label": None}
+
     def on_mouse(event: int, x: int, y: int, *_: Any) -> None:
-        if narrator and event == cv2.EVENT_LBUTTONDOWN and (track := track_at(shown["tracks"], x, y)):
-            logging.info("Click track=%d label=%r narration=%s", track["track_id"], track["label"],
+        if not narrator or event != cv2.EVENT_LBUTTONDOWN:
+            return
+        track = track_at(shown["tracks"], x, y)
+        selected["label"] = track and track["label"]
+        if track:
+            logging.info("Click track=%d label=%r description=%s", track["track_id"], track["label"],
                          narrator.click(track["label"]))
 
     cv2.namedWindow(WINDOW)
@@ -442,6 +461,9 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
                         if visible(track) and track["label"] is not None:
                             narrator.prepare(track["label"])
                 draw_tracks(frame, shown["tracks"], narrator.ready if narrator else lambda label: False)
+                if narrator and selected["label"]:
+                    draw_description(frame, selected["label"],
+                                     narrator.description(selected["label"]) or "Writing a description...")
                 cv2.imshow(WINDOW, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
@@ -490,15 +512,14 @@ def main() -> None:
     command = shlex.join([sys.executable, *sys.argv])
     logging.info("Starting command: %s", command)
     predictor = UltralyticsPredictor(args.weights, config)
-    narrator = None
+    cache = HERE.parent / "cache" / "narration" / DESCRIBE_VERSION
+    audio = {}
     if os.environ.get("ELEVENLABS_API_KEY"):
-        narrator = Narrator(
-            HERE.parent / "cache" / "narration" / f"{DESCRIBE_VERSION}_{args.voice_id}_{args.tts_model}",
-            lambda label: gemini_describe(label, args.model),
-            lambda text: elevenlabs_speak(text, args.voice_id, args.tts_model),
-        )
+        audio = {"speak": lambda text: elevenlabs_speak(text, args.voice_id, args.tts_model),
+                 "audio_dir": cache / f"{args.voice_id}_{args.tts_model}"}
     else:
-        print("Spoken descriptions off: set ELEVENLABS_API_KEY to enable them.", file=sys.stderr)
+        print("Audio off (set ELEVENLABS_API_KEY to hear descriptions); click a box to read it.", file=sys.stderr)
+    narrator = Narrator(cache, lambda label: gemini_describe(label, args.model), **audio)
 
     def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:
         run_live(
