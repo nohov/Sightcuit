@@ -1,0 +1,10 @@
+Read AGENTS.md. You own research/ only. Research downloadable public datasets for
+the five agreed campus classes. Use original publisher documentation and direct
+links. Aim for a useful shortlist, not an exhaustive collection. For each source
+report exact relevant labels, boxes versus instance masks versus classification,
+documented counts, license evidence and commercial-use uncertainty, access method,
+real/synthetic imagery, campus relevance, and known limitations. Never fabricate
+counts or infer that public access means permission. No dataset downloads.
+Write research/report.md and research/sources.json with per-class coverage and
+recommendations, clearly provisional pending sample inspection. Distinguish
+candidate sources from approved sources. Write research/completion.json.

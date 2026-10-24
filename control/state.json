@@ -1,0 +1,14 @@
+{
+  "workspace": "wA",
+  "roles": {
+    "labels": {
+      "pane": "wA:p2"
+    },
+    "research": {
+      "pane": "wA:p3"
+    },
+    "baseline": {
+      "pane": "wA:p4"
+    }
+  }
+}
