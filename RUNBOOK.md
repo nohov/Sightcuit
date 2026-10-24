@@ -133,7 +133,8 @@ For Meta glasses, replace `--camera 0` with `--listen 0.0.0.0:8765`. Setup is in
 `app/ios/README.md`. The dashboard gets `gemini_label` as the project class
 (`laptop`, `phone`, ...) once Gemini confirms the item, plus `name` with
 Gemini's free-text name and `description` (the narrator's text, null until
-written; no audio in relay mode). Generic names without a brand get a fixed
+written; the laptop plays no audio in relay mode, and the phone speaks it when the
+glasses are tapped). Generic names without a brand get a fixed
 per-category text instead of a Gemini call.
 
 ## Checks

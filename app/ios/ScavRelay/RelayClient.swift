@@ -4,6 +4,8 @@ struct RelayTrack: Decodable, Identifiable {
   let track_id: Int
   let box_xyxy_pixels: [Double]
   let label: String?
+  let name: String?
+  let description: String?
   var id: Int { track_id }
 }
 

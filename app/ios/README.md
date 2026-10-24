@@ -30,7 +30,7 @@ Meta AI's update screen; re-enable Developer Mode after updating.
 3. Build Settings > Info.plist File: `ScavRelay/Info.plist`; turn off
    "Generate Info.plist File".
 4. File > Add Package Dependencies: `https://github.com/facebook/meta-wearables-dat-ios`,
-   add `MWDATCore`, `MWDATCamera`, and `MWDATMockDevice` to the target.
+   add `MWDATCore`, `MWDATCamera`, `MWDATInputs`, and `MWDATMockDevice` to the target.
 5. Signing & Capabilities: pick your team. `TeamID` in `Info.plist` comes from `$(DEVELOPMENT_TEAM)`.
 6. Optional, for the simulator: add a permitted local clip as `mock-feed.mp4` to the
    target. DEBUG builds then show "Use mock glasses".
@@ -76,6 +76,20 @@ the last finished boxes; press `q` in it to stop. Add `--no-display` to run head
 To watch the stream in the dashboard instead, run `npm run dev` in `frontend/`
 and open the `dashboard: open http://localhost:5173/?relay=...` link the relay
 prints at startup. See `frontend/README.md`.
+
+### Spoken descriptions
+
+Short-press the capture button on the glasses while streaming: the phone speaks the
+description of the biggest identified box, using Apple's built-in voice, and the
+stream keeps running. Press again while it is speaking to stop. This uses Meta's
+Inputs capability, which Meta marks as beta; if it does not attach, the status line
+says so. Fallback: tap the glasses once. That pauses (freezes) the stream and speaks;
+tap again to stop and resume. **Speak description** in the app does the same thing.
+The status line shows where the audio went: a Bluetooth port (`BluetoothA2DPOutput`)
+means the glasses, `Speaker` means the phone. If it is the phone, pair the glasses
+as an audio device in iOS Settings > Bluetooth. Descriptions take 10-30 s to arrive
+the first time an item is seen. Taking the glasses off also pauses the stream, so
+it also starts a description.
 
 ## Troubleshooting
 

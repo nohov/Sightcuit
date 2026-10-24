@@ -33,6 +33,8 @@ struct ContentView: View {
             Button("Start streaming") { Task { await glasses.start(host: host, token: token) } }
               .disabled(host.isEmpty || token.isEmpty)
           } else {
+            // Same as a tap on the glasses; also the check that audio reaches the glasses during a stream.
+            Button("Speak description") { glasses.describeCurrent() }
             Button("Stop", role: .destructive) { glasses.stop() }
           }
         }

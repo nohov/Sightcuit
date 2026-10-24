@@ -1,5 +1,7 @@
+import AVFoundation
 import MWDATCamera
 import MWDATCore
+import MWDATInputs
 import SwiftUI
 #if DEBUG
 import MWDATMockDevice
@@ -19,6 +21,10 @@ final class GlassesController: ObservableObject {
   private var session: DeviceSession?
   private var camera: Camera?
   private let tokens = ListenerTokenBag()
+  // Held here: a local synthesizer is deallocated mid-sentence.
+  private let speech = AVSpeechSynthesizer()
+  private var lastSpoken: Date?
+  private var inputsTask: Task<Void, Never>?
 
   init() {
     Task {
@@ -97,6 +103,7 @@ final class GlassesController: ObservableObject {
       observe(camera.stream)
       camera.stream.start()
       status = ""
+      observeInputs(session)
     } catch {
       // Leftover sessions make the next Start fail with sessionAlreadyExists.
       stop()
@@ -104,7 +111,61 @@ final class GlassesController: ObservableObject {
     }
   }
 
+  /// Speaks the description of the biggest described box (the item nearest the wearer) from the last relay reply.
+  func describeCurrent() {
+    let track = result?.tracks
+      .filter { $0.description != nil }
+      .max { area($0.box_xyxy_pixels) < area($1.box_xyxy_pixels) }
+    speak(track?.description ?? "Nothing identified yet. Hold the item in view for a few seconds.")
+  }
+
+  private func area(_ b: [Double]) -> Double { b.count == 4 ? (b[2] - b[0]) * (b[3] - b[1]) : 0 }
+
+  private func speak(_ text: String) {
+    let audio = AVAudioSession.sharedInstance()
+    // .playback, not .playAndRecord: recording forces the low-quality hands-free Bluetooth profile.
+    try? audio.setCategory(.playback, mode: .spokenAudio)
+    try? audio.setActive(true)
+    speech.stopSpeaking(at: .immediate)
+    speech.speak(AVSpeechUtterance(string: text))
+    // Shows whether the voice goes to the glasses (Bluetooth) or the phone speaker.
+    status = "Audio out: " + audio.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ", ")
+  }
+
+  /// Capture button press: speak (or stop speaking) without pausing the stream. Meta marks Inputs as beta.
+  /// Optional: if it does not attach, streaming and the tap trigger still work.
+  private func observeInputs(_ session: DeviceSession) {
+    do {
+      guard let inputs = try session.addInputs(configuration: InputsConfiguration(sources: [.captureButton])) else {
+        status = "Capture button unavailable; tap the glasses instead"
+        return
+      }
+      inputs.statePublisher.listen { state in print("Glasses inputs state: \(state)") }.store(in: tokens)
+      inputs.errorPublisher.listen { [weak self] error in
+        Task { @MainActor in self?.status = "Capture button: \(error.description); tap the glasses instead" }
+      }.store(in: tokens)
+      let events = inputs.events
+      inputsTask = Task { @MainActor [weak self] in
+        for await event in events {
+          print("Glasses input: \(event)")
+          guard let self, case .capture(.shortPress, _, _) = event else { continue }
+          if self.speech.isSpeaking {
+            self.speech.stopSpeaking(at: .immediate)
+          } else {
+            self.describeCurrent()
+          }
+        }
+      }
+    } catch {
+      status = "Capture button: \(error.localizedDescription); tap the glasses instead"
+    }
+  }
+
   func stop() {
+    speech.stopSpeaking(at: .immediate)
+    inputsTask?.cancel()
+    inputsTask = nil
+    try? session?.removeInputs()
     camera?.stop()
     session?.stop()
     tokens.clear()
@@ -117,7 +178,25 @@ final class GlassesController: ObservableObject {
   private func observe(_ stream: MWDATCamera.Stream) {
     stream.statePublisher.listen { [weak self] state in
       // paused keeps the last frame on screen; a tap on the glasses resumes.
-      Task { @MainActor in self?.streamState = String(describing: state) }
+      Task { @MainActor in
+        guard let self else { return }
+        print("Glasses stream state: \(state)")
+        self.streamState = String(describing: state)
+        switch state {
+        case .paused:
+          // A tap pauses the stream, so it is the trigger. Taking the glasses off or closing them also pauses
+          // and also speaks: the SDK does not say why it paused. While paused, result is still the last scene.
+          // Fallback trigger: freezes the stream until the next tap. The capture button (observeInputs) does not.
+          if self.lastSpoken.map({ Date().timeIntervalSince($0) > 2 }) ?? true {
+            self.lastSpoken = Date()
+            self.describeCurrent()
+          }
+        case .streaming:
+          self.speech.stopSpeaking(at: .immediate)
+        default:
+          break
+        }
+      }
     }.store(in: tokens)
     stream.errorPublisher.listen { [weak self] error in
       Task { @MainActor in self?.status = error.localizedDescription }
