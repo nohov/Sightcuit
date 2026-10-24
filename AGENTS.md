@@ -1,8 +1,9 @@
 # ScavScrap recognition evaluation
 
 The first milestone is an honest evaluation of pretrained object detection for
-exactly five project classes: `laptop`, `desktop_computer_tower`, `monitor`,
-`printer`, and `projector`.
+exactly five project classes: `laptop`, `phone`, `headphones`, `smartwatch`,
+and `speaker`. `labels/classes.json` is the single source of the class list;
+code reads it through `labels.TARGET_CLASSES`.
 
 Evaluate a YOLO detector before choosing a model or integrating an application.
 Predictions must come from image pixels. Filenames, folder names, manifest ground
@@ -30,7 +31,7 @@ and report `needs_input`; never simulate inference.
 
 Preserve the detector's original class ID, class name, confidence, and bounding
 box. Map a raw class to a project class only when the frozen configuration says
-the semantics match exactly. `tv` is not `monitor`. A missing detector class is
+the semantics match exactly. `clock` is not `smartwatch`. A missing detector class is
 unsupported, not a successful classification.
 
 Keep output types honest: YOLO and Gemini detection produce boxes; boxes are not

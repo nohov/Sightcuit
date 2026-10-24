@@ -4,11 +4,12 @@
 
 Collect a small independent evaluation set:
 
-- 10–20 usable photos for each of `laptop`, `desktop_computer_tower`,
-  `monitor`, `printer`, and `projector`.
+- 10–20 usable photos for each of `laptop`, `phone`, `headphones`,
+  `smartwatch`, and `speaker`.
 - 20–30 additional confusing or unsupported photos in total. Include tablets,
-  televisions, all-in-one computers, scanners, cameras, empty rooms, and scenes
-  containing multiple devices without a clear primary subject.
+  landline handsets, earbuds, analog watches, wall clocks, fitness bands, devices
+  with built-in speakers, empty rooms, and scenes containing multiple devices
+  without a clear primary subject.
 
 Use at least three distinct physical devices per target class where practical.
 Do not satisfy a class quota with many near-identical photos of one device.
@@ -17,15 +18,9 @@ and device state while keeping the intended primary device identifiable.
 
 ## Folder layout
 
-Empty collection folders are provided under `evaluation/images/` for the five
-classes and the `ambiguous`, `unsupported`, and `unreadable` outcomes. Folder name
-does not establish ground truth; the reviewed CSV manifest does.
-
-If these empty directories are absent after cloning, recreate them with:
-
-```sh
-mkdir -p evaluation/images/{laptop,desktop_computer_tower,monitor,printer,projector,ambiguous,unsupported,unreadable}
-```
+Keep photos under `evaluation/images/`. That folder is git-ignored, so photos
+stay local until their permissions are documented. Folder names never establish
+ground truth; the reviewed CSV manifest does.
 
 ## Manifest procedure
 

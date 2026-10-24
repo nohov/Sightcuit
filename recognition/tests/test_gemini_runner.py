@@ -47,14 +47,14 @@ def run(root: Path, manifest: Path, transport) -> dict:
 class GeminiRunnerTests(unittest.TestCase):
     def test_box_2d_converts_to_xyxy_pixels(self):
         parsed = runner.normalize_response(
-            [{"label": "monitor", "box_2d": [100, 250, 500, 750]}], (200, 400)
+            [{"label": "phone", "box_2d": [100, 250, 500, 750]}], (200, 400)
         )
         self.assertEqual(parsed, [{
-            "raw_class_id": 2,
-            "raw_class_name": "monitor",
+            "raw_class_id": 1,
+            "raw_class_name": "phone",
             "confidence": None,
             "box_xyxy_pixels": [100.0, 20.0, 300.0, 100.0],
-            "project_class": "monitor",
+            "project_class": "phone",
             "mapping_status": "mapped",
         }])
 

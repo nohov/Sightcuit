@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "task": "object_detection",
   "classes": [
     {
@@ -7,20 +7,20 @@
       "definition": "A portable computer with a screen and permanently attached hinged keyboard base visible as one device."
     },
     {
-      "id": "desktop_computer_tower",
-      "definition": "A standalone desktop computer chassis that houses the primary computing components and is separate from its display."
+      "id": "phone",
+      "definition": "A handheld mobile phone, typically a slab-shaped smartphone or a feature phone, excluding tablets and cordless or desk landline handsets."
     },
     {
-      "id": "monitor",
-      "definition": "A standalone electronic display intended primarily as a computer or external display, excluding integrated all-in-one computers."
+      "id": "headphones",
+      "definition": "Over-ear or on-ear headphones with a headband joining two ear cups, including headsets with a boom microphone, excluding in-ear earbuds."
     },
     {
-      "id": "printer",
-      "definition": "A device whose functions include producing physical printed output, including multifunction printer-scanner-copiers."
+      "id": "smartwatch",
+      "definition": "A wrist-worn electronic watch with a digital touch display, excluding analog watches, wall or desk clocks, and screenless fitness bands."
     },
     {
-      "id": "projector",
-      "definition": "A digital video or data projector designed to cast an image onto a separate viewing surface."
+      "id": "speaker",
+      "definition": "A standalone loudspeaker enclosure, including portable Bluetooth, smart, bookshelf, and computer speakers, excluding speakers built into another device."
     }
   ],
   "non_class_outcomes": [

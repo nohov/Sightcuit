@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Electronics Pokédex prediction record v1",
+  "title": "Electronics Pokédex prediction record v2",
   "type": "object",
   "properties": {
     "image_id": {"type": "string"},
@@ -8,10 +8,10 @@
       "type": "string",
       "enum": [
         "laptop",
-        "desktop_computer_tower",
-        "monitor",
-        "printer",
-        "projector",
+        "phone",
+        "headphones",
+        "smartwatch",
+        "speaker",
         "ambiguous",
         "unsupported",
         "unreadable"
@@ -19,7 +19,7 @@
     },
     "evidence": {"type": ["string", "null"]},
     "model_identifier": {"type": "string"},
-    "prompt_version": {"const": "electronics-pokedex-v1"},
+    "prompt_version": {"const": "electronics-pokedex-v2"},
     "latency_ms": {"type": "number", "minimum": 0},
     "error": {"type": ["string", "null"]},
     "raw_response": {"type": ["string", "null"]}

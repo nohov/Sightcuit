@@ -4,3 +4,6 @@ __pycache__/
 .venv/
 # Ultralytics downloads (CLIP text encoder etc.)
 weights/
+
+# Local evaluation photos; each needs permission provenance before it is shared
+evaluation/images/

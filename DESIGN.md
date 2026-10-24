@@ -108,8 +108,8 @@ so a full run needs billing enabled.
 
 | Run | Runner | Config |
 | --- | --- | --- |
-| **Gemini 3.5 Flash-Lite (primary)** | `recognition/gemini_runner.py` | default `--model gemini-3.5-flash-lite`, `prompt-gemini-v1.txt` |
-| Cascade (fallback) | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v1.txt` |
+| **Gemini 3.5 Flash-Lite (primary)** | `recognition/gemini_runner.py` | default `--model gemini-3.5-flash-lite`, `prompt-gemini-v2.txt` |
+| Cascade (fallback) | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v2.txt` |
 | Gemini 3.8 Flash | `recognition/gemini_runner.py` | `--model gemini-3.8-flash`, same prompt |
 | YOLO-World S / L / X | `recognition/yolo_runner.py` | `yolo_world_model.json`, `yolo_world_l_model.json`, `yolo_world_x_model.json` (same 5 prompts) |
 | YOLO26n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop and phone only) |
