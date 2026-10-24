@@ -38,23 +38,6 @@ function primaryTrack(frame) {
   return labelled[0] || null;
 }
 
-// Size of the area the frame is drawn into, so boxes line up with the letterboxed video.
-function useElementSize() {
-  const ref = useRef(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setSize({ width, height });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, size];
-}
-
 function RelayForm({ relay, onConnect, onClose }) {
   const [url, setUrl] = useState(relay?.url || "http://localhost:8765");
   const [token, setToken] = useState(relay?.token || "");
@@ -86,10 +69,56 @@ function RelayForm({ relay, onConnect, onClose }) {
   );
 }
 
-function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
+// Layout constants for sizing the recording panel around the video (px).
+const PANEL_CHROME_W = 46; // panel padding 2×18 + panel border 2×2 + viewport border 2×3
+const VIEWPORT_CHROME_H = 6 + 68; // viewport border 2×3 + transport bar
+// Room the other panels keep beside the recording: in the landscape layout the
+// model + measurements panels share its row; in the portrait layout the whole
+// right-hand column sits beside it.
+const SIDE_SPACE = {
+  landscape: { gaps: 2 * 18, minW: 500 },
+  portrait: { gaps: 18, minW: 760 },
+};
+const COMPACT_BELOW = 1100;
+
+// Measures the height the recording panel can use and the width of its row.
+function useRecordingSpace() {
+  const ref = useRef(null);
+  const [space, setSpace] = useState({ slotH: 0, rowW: 0 });
+  useEffect(() => {
+    const section = ref.current;
+    const slot = section?.querySelector(".slot");
+    const row = section?.parentElement;
+    if (!slot || !row) return undefined;
+    const measure = () => setSpace({ slotH: slot.clientHeight, rowW: row.clientWidth });
+    const observer = new ResizeObserver(measure);
+    observer.observe(slot);
+    observer.observe(row);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  return [ref, space];
+}
+
+// Video size that fills the available height at the frame's aspect ratio,
+// narrowed if it would squeeze the side panels.
+function fitScreen({ slotH, rowW }, ratio, layout) {
+  const compact = rowW > 0 && rowW < COMPACT_BELOW;
+  const side = SIDE_SPACE[layout];
+  let screenH = Math.max(0, slotH - VIEWPORT_CHROME_H);
+  let screenW = screenH * ratio;
+  const maxW = Math.max(160, rowW - side.gaps - side.minW - PANEL_CHROME_W);
+  if (screenW > maxW) {
+    screenW = maxW;
+    screenH = screenW / ratio;
+  }
+  return { screenW, screenH, panelW: screenW + PANEL_CHROME_W, compact };
+}
+
+function RecordingPanel({ frame, sizeHW, layout, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
   const tracks = frame?.tracks || [];
-  const [frameH, frameW] = frame?.image_size_hw_pixels || DEFAULT_SIZE_HW;
-  const [screenRef, screen] = useElementSize();
+  const [frameH, frameW] = sizeHW;
+  const [sectionRef, space] = useRecordingSpace();
   const [formOpen, setFormOpen] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const src = paused ? null : videoUrl(relay);
@@ -103,33 +132,32 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
     setVideoAttempt((n) => n + 1);
   }, [status]);
 
-  // Fit the frame inside the screen area, keeping its aspect ratio.
-  const scale = Math.min(screen.width / frameW, screen.height / frameH) || 0;
-  const stage = {
-    width: frameW * scale,
-    height: frameH * scale,
-    left: (screen.width - frameW * scale) / 2,
-    top: (screen.height - frameH * scale) / 2,
-  };
+  // Size the recording box to the video's own shape, so there are no bars beside or above it.
+  const ratio = frameW / frameH;
+  const { screenW, screenH, panelW, compact } = fitScreen(space, ratio, layout);
+
   const showVideo = Boolean(src) && !videoFailed;
 
   return (
-    <section className="panel recording">
+    <section className="panel recording" ref={sectionRef} style={compact ? undefined : { flex: "0 0 auto", width: panelW }}>
       <div className="panel-head">
         <h2>Meta Recording</h2>
         <span className="mono muted">
           {STATUS_TEXT[status]} · {frameW}×{frameH}
         </span>
       </div>
+      <div className="slot">
       <div className="viewport">
-        <div className="rec-badge mono">
-          <span className={`rec-dot ${paused ? "" : "blink"}`} />
-          {paused ? "PAUSED" : "REC"} {formatClock(elapsed)}
-        </div>
-        <span className="rivet" style={{ top: 10, right: 10 }} />
-        <span className="rivet" style={{ bottom: 74, right: 10 }} />
-
-        <div className="screen" ref={screenRef}>
+        <div
+          className="feed-screen"
+          style={compact ? { width: "100%", aspectRatio: `${frameW} / ${frameH}` } : { width: screenW, height: screenH }}
+        >
+          <div className="rec-badge mono">
+            <span className={`rec-dot ${paused ? "" : "blink"}`} />
+            {paused ? "PAUSED" : "REC"} {formatClock(elapsed)}
+          </div>
+          <span className="rivet" style={{ top: 10, right: 10 }} />
+          <span className="rivet" style={{ bottom: 10, right: 10 }} />
           {!showVideo && (
             <div className="feed-placeholder">
               <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
@@ -147,7 +175,7 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
             </div>
           )}
 
-          <div className="stage" style={stage}>
+          <div className="stage">
             {showVideo && (
               <img key={videoAttempt} className="video" src={src} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
@@ -223,6 +251,7 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
             {relay ? "Relay settings" : "Connect relay"}
           </button>
         </div>
+      </div>
       </div>
     </section>
   );
@@ -365,33 +394,65 @@ export default function App() {
     setRelay(next);
   };
 
+  // Keep the last known frame size so the layout doesn't jump while paused or reconnecting.
+  const [sizeHW, setSizeHW] = useState(DEFAULT_SIZE_HW);
+  const frameSize = frame?.image_size_hw_pixels;
+  useEffect(() => {
+    if (!frameSize?.[0] || !frameSize?.[1]) return;
+    setSizeHW((prev) => (prev[0] === frameSize[0] && prev[1] === frameSize[1] ? prev : frameSize));
+  }, [frameSize?.[0], frameSize?.[1]]);
+  const layout = sizeHW[0] > sizeHW[1] ? "portrait" : "landscape";
+
   const track = useMemo(() => primaryTrack(frame), [frame]);
   const activeId = track?.gemini_label ?? null;
   const known = Boolean(activeId && DEVICES[activeId]);
   const device = lookup(activeId);
 
-  return (
+  const recording = (
+    <RecordingPanel
+      frame={frame}
+      sizeHW={sizeHW}
+      layout={layout}
+      elapsed={(now - startedAt) / 1000}
+      paused={paused}
+      onTogglePause={() => setPaused((p) => !p)}
+      relay={relay}
+      status={paused ? "paused" : status}
+      onRelayChange={changeRelay}
+    />
+  );
+  const modelAndMeasurements = (
+    <>
+      <ModelPanel id={known ? activeId : null} device={device} />
+      <MeasurementsPanel device={device} />
+    </>
+  );
+  const bottomRow = (
+    <div className="row bottom">
+      <ParticularsPanel device={device} track={track} known={known} activeId={activeId} />
+      <AssayPanel device={device} />
+    </div>
+  );
+
+  // Tall (portrait) video gets a full-height column on the left; wide video
+  // shares the top row with the model and measurements.
+  return layout === "portrait" ? (
+    <div className="app portrait">
+      <h1 className="visually-hidden">ScavScrap scan dashboard</h1>
+      {recording}
+      <div className="side-column">
+        <div className="row top">{modelAndMeasurements}</div>
+        {bottomRow}
+      </div>
+    </div>
+  ) : (
     <div className="app">
       <h1 className="visually-hidden">ScavScrap scan dashboard</h1>
-
       <div className="row top">
-        <RecordingPanel
-          frame={frame}
-          elapsed={(now - startedAt) / 1000}
-          paused={paused}
-          onTogglePause={() => setPaused((p) => !p)}
-          relay={relay}
-          status={paused ? "paused" : status}
-          onRelayChange={changeRelay}
-        />
-        <ModelPanel id={known ? activeId : null} device={device} />
-        <MeasurementsPanel device={device} />
+        {recording}
+        {modelAndMeasurements}
       </div>
-
-      <div className="row bottom">
-        <ParticularsPanel device={device} track={track} known={known} activeId={activeId} />
-        <AssayPanel device={device} />
-      </div>
+      {bottomRow}
     </div>
   );
 }
