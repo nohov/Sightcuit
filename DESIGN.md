@@ -1,207 +1,271 @@
-# Electronics Pokédex — recognition experiment design, v0.6
+# ScavScrap — guided circuit building, v0.11
 
-The future product helps engineering students learn about electronics. The
-current milestone does not build that product. It determines, with recorded
-evidence, whether a pretrained object detector is useful for five device classes.
+## Purpose and audience
 
-## Sequence
+Help someone with no basic electronics knowledge build their first working
+breadboard circuit without needing a teacher beside them. First-year engineering
+students are also an audience, but instructions must not assume they recognize
+a resistor, LED, or breadboard. Explain names, purposes, and actions in plain
+language. Making electronics education more accessible is the product motivation.
+
+This is the intended product specification, not a claim of implemented
+capabilities. Existing five-device recognition results do not establish
+component recognition, hand association, or circuit verification performance.
+
+## Confirmed direction
+
+- The first demonstration is a simple LED circuit, built by a person who has
+  never made a circuit before.
+- An LLM prepares the project plan before assembly, citing existing beginner
+  projects that have actually been built. Live assembly follows that plan.
+- Parts may be ordered online or already owned. The expected parts and tools
+  are established before the build, rather than discovered through improvisation.
+- The demonstration inventory is seven physical pieces across six item types,
+  laid out clearly on a table; the external USB power source is additional.
+- The user wears Ray-Ban glasses and looks at a PC for diagrams and context.
+- The initial vision task checks whether the visible parts match the planned
+  inventory. The user can ask what an object is, including what is in their
+  right hand.
+- ElevenLabs is intended for voice; the division between speech output and
+  conversation handling remains open.
+- Assembly is breadboard-only, with no coding, soldering, or additional sensors.
+  Multimeters are deferred. The Arduino supplies power through its 5V/GND pins.
+- Voice commands are the primary way to advance steps. Progression is
+  user-directed; automatic assembly verification remains undecided. PC controls
+  are a proposed fallback.
+
+## First demo: USB-powered red LED
+
+Owner-specified inventory (availability is not yet physically verified):
+
+| Component | Quantity | Inventory source |
+| --- | --- | --- |
+| Arduino UNO R3 | 1 | CEWITs or INTERNAL |
+| Breadboard | 1 | CEWITs or INTERNAL |
+| Red LED | 1 | CEWIT LED kit |
+| 330Ω resistor | 1 | CEWIT resistor collection |
+| Male-to-male jumper wires | 2 | CEWIT jumper box |
+| USB cable compatible with Arduino UNO | 1 | Availability must be confirmed |
+
+Total: **seven physical pieces, six item types**, counting the two jumper wires
+separately. A computer or USB power adapter is required in addition to this
+inventory. The recognition scope must explicitly decide whether the USB cable
+is checked visually or confirmed during setup; do not silently drop it.
+
+The specified series connection is:
 
 ```text
-pretrained detector evaluation
-→ evidence-based model decision
-→ live-capture prototypes (laptop webcam, Meta glasses relay)
-→ application integration later
+Arduino 5V → 330Ω resistor → red LED anode (+)
+red LED cathode (−) → Arduino GND
 ```
 
-No application may present a device as visually identified until a pixel-based
-model has run and its result satisfies an accepted mapping policy.
+Use the two jumper wires for the Arduino-to-breadboard 5V and GND connections;
+the resistor and LED share the appropriate breadboard nodes. Exact hole
+coordinates and the diagram depend on the actual breadboard and remain pending.
+Assemble with USB disconnected, then follow the finalized connection review and
+power-up procedure. No digital I/O pin, sketch upload, or software-controlled
+switch is part of this circuit.
 
-## Fixed target contract
+Expected behavior: the external red LED remains lit while USB powers the
+correctly assembled circuit. Removing USB power turns it off. Success requires
+observing the external breadboard LED, not an onboard Arduino indicator.
 
-1. `laptop`
-2. `phone`
-3. `headphones`
-4. `smartwatch`
-5. `speaker`
+The official UNO R3 uses USB-B at the board. Select the other cable end for the
+chosen computer or adapter and confirm the actual board connector before the
+demo. Arduino documents USB power and the board's 5V/GND connections in its
+[power guide](https://support.arduino.cc/hc/en-us/articles/360018922259-What-power-supply-can-I-use-with-my-Arduino-board),
+[USB connector guide](https://support.arduino.cc/hc/en-us/articles/4733418441116-Upload-a-sketch-in-Arduino-IDE),
+and [UNO R3 pinout](https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf).
+These references establish board details; they are not a cited completed
+beginner project or evidence that this particular build has been tested.
 
-Exact manufacturer, model, internal parts, material content, value, instance
-masks, and multi-device tracking are outside this milestone.
+## Project preparation
 
-## Baseline
+Before the session, the LLM assembles a versioned project package containing:
 
-The first proposed baseline is Ultralytics YOLO26n Detect with COCO-pretrained
-weights. It is an object detector: each output is a class, confidence, and
-bounding box. A box is not a mask, and an absent class is unsupported rather
-than an implicit negative classifier for that project class.
+- Source project titles and URLs, with the steps or circuit details they support.
+- Intended behavior and a beginner-friendly explanation.
+- Required parts, quantities, required values or ratings, and tools.
+- A circuit schematic and breadboard placement diagram for the selected board.
+- Ordered assembly instructions, the parts needed for each step, and why each
+  connection is made.
+- The selected power arrangement, connection procedure, and expected final test.
+- Any substitutions or departures from the cited project, explicitly identified.
 
-The frozen COCO list contains the exact raw classes `laptop` and `cell phone`.
-It does not contain the project classes `headphones`, `smartwatch`, or
-`speaker`. It contains `clock`, which is not mapped to `smartwatch`. Therefore
-the initial support table is:
+Citing a working project is not itself validation of the LLM's adaptation.
+Sources must be checked for the actual selected parts and supply; the project
+review process and responsible reviewer are still undecided. Do not describe
+an unreviewed generated plan as reviewed. The owner has specified the circuit
+and nominal resistor value; actual LED specifications, resistor rating, board
+layout, and physical part availability still need confirmation.
 
-| Project class | YOLO26n COCO support | Mapping |
+## Build experience
+
+1. Introduce the goal and explain the breadboard and components from first
+   principles, using the user's actual planned parts.
+2. Ask the user to lay out the expected items. Show which required items have
+   visual support, which are missing from view, and which are unresolved.
+   An item missing from the image is not necessarily absent from the workspace.
+3. Present one prepared assembly step, its required part or parts, placement
+   diagram, and short explanation.
+4. Answer identification questions with the current glasses image as evidence.
+   Keep the object being held distinct from the part needed for the step.
+5. Let the user advance with a voice command such as “next step.” Record this
+   as user-reported completion, not machine-verified wiring. Allow back/repeat.
+6. Follow the finalized project's power and test procedure, then record the
+   observed result and any assistance needed.
+
+The final success criterion is a novice completing this circuit and observing
+the external red LED remain lit while powered. Record any assistance required.
+Turning off by removing USB is the expected shutdown, not a separate switching
+feature. The earlier ambiguous “turns off” criterion is superseded.
+
+## PC interface and current repository
+
+The existing `frontend/src/App.jsx` provides a glasses recording panel with
+boxes, a rotating device model, measurements, device particulars, and a metal
+assay. Its current focus is the most confident labelled track, not a detected
+right-hand object. These are existing implementation facts, not new features.
+
+Adapt that dashboard concept into a step-focused workspace:
+
+| Display | Intended content |
+| --- | --- |
+| Glasses view | Current camera image and supported component observations |
+| Current step | Plain-language action, explanation, progress, and navigation |
+| Required parts | The component or components needed now, regardless of what is held |
+| Held or queried object | Supported identity, useful explanation, or unresolved state |
+| Assembly diagram | Breadboard layout with the current placement highlighted |
+| Circuit reference | Overall circuit and relevant connections for context |
+
+The held-object panel must not replace the required-parts panel. Measurements
+and metal assay are not requirements for this experience. Exact panel layout,
+visual emphasis, and navigation hardware remain design decisions. This spec
+update does not modify frontend code.
+
+## Recognition and evidence boundaries
+
+A small, known inventory narrows the task but does not guarantee visibility or
+right-hand association. Treat both as capabilities to evaluate, not assumptions.
+A known inventory supplies expectations; image pixels must supply recognition.
+Do not assign an unseen object a label solely because it is the remaining item.
+
+Distinguish component category from exact value, polarity, or part identity.
+Keep visible evidence, project expectations, and user confirmation separate.
+If the image cannot support an answer, report uncertainty; whether to request
+a close-up, ask the user to reposition the part, or use another fallback is open.
+
+Preserve image references, predicted labels, boxes, raw model output, and
+request failures. Boxes are not masks or verified connections. Gemini confidence
+remains null. Parsing or provider errors must not become successful inventory
+checks. A Next command records progression, not electrical verification.
+
+Power architecture is resolved: USB source → UNO USB connector → 5V/GND
+headers → breadboard circuit. The particular computer or USB adapter and cable
+availability remain open. Direct mains wiring is outside the demonstration.
+
+## Evaluation
+
+Evaluate real, permitted glasses images of the selected parts for component
+identification, initial inventory matching, and held-object questions. Include
+occlusion and ambiguous views even with the small inventory. Report errors,
+abstentions, failures, latency, and cost; do not infer accuracy from scene size.
+
+Run the complete prepared tutorial with a novice and record completion,
+interventions, confusing instructions, and the final circuit behavior. Choose
+participant count and acceptance thresholds before claiming success. If automatic
+assembly checking is later included, evaluate it separately on correct and
+incorrect placements. Mocked software tests do not establish vision performance.
+
+## Open decisions — circle-back list
+
+| Decision | Current position | Needed to resolve |
 | --- | --- | --- |
-| `laptop` | Exact built-in class | `laptop` → `laptop` |
-| `phone` | Exact built-in class | `cell phone` → `phone` |
-| `headphones` | Unsupported | none |
-| `smartwatch` | Unsupported | none; `clock` explicitly rejected |
-| `speaker` | Unsupported | none |
+| Physical parts and layout | Seven pieces across six types specified above | Confirm availability, breadboard layout, LED specifications, resistor rating, and USB cable; decide cable recognition scope |
+| Power arrangement — partly resolved | USB powers UNO; circuit uses 5V/GND | Choose computer or USB adapter, confirm matching cable and finalize power-up procedure |
+| Step completion/checking — explicitly circle back | Voice advances the lesson; no automatic verification promised | Whether any checks occur, when, and what the UI may claim |
+| Progression control | Voice is primary | Activation phrase/listening mode, PC fallback, and optional hardware gesture mapping |
+| ElevenLabs/voice — explicitly circle back | Voice selected in principle | Speech output only versus conversation handling, microphone, activation, interruption, and repeat behavior |
+| Plan validation | LLM prepares plans with citations to existing projects | Source selection, adaptation checks, reviewer/process, and approval before use |
+| Hand identification fallback | Small, clearly laid-out inventory intended | Behavior when hand or part is obscured; whether repositioning/close-up requests are acceptable |
+| PC presentation | Required parts, held object, breadboard, circuit, and step layout | Relative prominence and navigation layout |
+| Demo evaluation | Novice completes first LED circuit | Deadline, participant count, allowed assistance, and pass criteria |
+| Project breadth after the demo | Plans prepared before building | Which additional projects and substitutions are supported |
 
-This limited coverage is an experiment result about the label space, not a
-reason to invent mappings. Later evidence may justify evaluating a different
-pretrained detector, such as an LVIS- or open-vocabulary model, in a separately
-frozen run.
+## Component names and frontend inputs
 
-## Reproducibility contract
+The proposed [component catalog](labels/component_catalog.md) separates identity
+(specific supported name) from classification (broad category). It includes the
+LED inventory and separately scoped beginner-project expansion candidates,
+including jumper-wire endpoint variants. Runtime migration remains atomic with
+prompts, schemas, model configs, and tests; this catalog is not model support.
 
-Each image record preserves:
+The frontend consumes:
 
-- image ID, task, model and local weights filename;
-- SHA-256 of the exact weights;
-- runtime name/version, device, and hardware platform;
-- executed command and confidence/IoU thresholds;
-- elapsed time and explicit error;
-- original image dimensions;
-- raw Ultralytics summary rows;
-- original model class ID/name, confidence, and `xyxy` pixel box;
-- explicit project mapping or `unsupported` status.
+| Input | Required information |
+| --- | --- |
+| Project package | Project/version, inventory quantities and attributes, step IDs, instructions, explanations, schematic and breadboard assets, source links |
+| Session state | Session ID, current step, state revision, user-reported completion, pause/resume state |
+| Visual observation | Frame ID, capture time, image dimensions, instance IDs, boxes, identity, classification, attribute evidence, uncertainty, queried-hand association |
+| Inventory result | Expected quantity, observed quantity, user-confirmed quantity, unresolved items; keep these separate |
+| Voice command | Event ID, final transcript, intent, session/step context, accepted/rejected result |
+| Speech output | Text/audio reference, associated step/request, queued/playing/stopped/error state |
+| Device/service status | Camera connection, microphone/listening status, backend connection, inference pending/failure and stale observations |
 
-The runner must receive an existing local weights file. It verifies the embedded
-class list before inference and refuses a mismatch. Manifest ground truth and
-provenance are never passed to the model. Filenames provide file locations only
-and never determine predictions.
+Proposed intents: next_step, previous_step, repeat_step, pause, resume,
+identify_object, explain_component. Only final accepted navigation commands
+change state. Deduplicate events and reject stale step-context commands so
+partial transcripts, retries, and repeated delivery cannot skip steps. Hearing
+“next” in the assistant's own speech must not advance the tutorial. Bind visual
+answers to the frame used; ignore obsolete answers after the query changes.
 
-## Evaluation inputs
+## Ray-Ban input integration
 
-Use 10–20 permitted photos per target class and 20–30 confusing or unsupported
-examples only after collection is approved. Include multiple physical devices,
-viewpoints, lighting, distances, occlusions, clutter, and empty scenes. Group
-related images by physical device and session.
+The current iOS relay handles camera frames only. Its README records DAT 1.0.1.
+Meta's [iOS changelog](https://github.com/facebook/meta-wearables-dat-ios/blob/main/CHANGELOG.md)
+documents experimental speech transcription, camera audio streaming, input
+events, motion, and voice invocation starting with LaunchApp in DAT 1.0.
+It states that experimental features can be tested but apps using them cannot
+yet be published. Verify capability availability on the actual glasses and
+firmware; do not assume every event exists on every device.
 
-Detection scoring requires reviewed ground-truth boxes. The existing whole-image
-classification scorer is retained only for the separate VLM comparison and must
-not be used to claim YOLO localization quality.
+Use camera input for observations and microphone/transcription for commands and
+questions. Choose either SDK transcription or an audio-to-transcription path;
+ElevenLabs speech output alone is not a command interpreter. Add microphone
+permission, listening-state UI, command parsing, and event forwarding from
+phone to laptop. Test audio output routing separately.
 
-## Comparison, not default
+Optional touch/button events can later map to repeat or pause after testing
+MWDATInputs on the hardware. Do not assume the capture button can be freely
+remapped. App-launch voice invocation is separate from arbitrary in-lesson
+commands. Motion/head gestures and Display/Neural Band interactions are not
+required for this PC-based demo. PC buttons/keyboard are proposed fallbacks.
 
-Qwen3-VL through Ollama remains a proposed whole-image classifier. It may produce
-one family outcome but not object boxes. It was not executed, and it cannot be
-reported as detection or segmentation.
+## Repository transition and implementation gates
 
-## Gemini vs YOLO bake-off
+The runtime still reads the five device classes in `labels/classes.json`
+through `labels.TARGET_CLASSES`. This design update does not change that
+contract, existing prompts, models, datasets, or evaluation results.
 
-The owner approved a detection bake-off on one reviewed, box-annotated test set.
+Before a component experiment runs:
 
-The **primary candidate** is whole-image Gemini 3.5 Flash-Lite: one call per
-image returns labelled boxes for the five classes. In unscored smoke tests on
-15 photos of the previous class list it found all 21 target devices.
+- Confirm the LED set, initial project plan, and power arrangement.
+- Define component classes and attribute evidence rules in `labels/`; version
+  the migration with matching prompts, schemas, and evaluation materials.
+- Update the five-device milestone in `AGENTS.md` for the new experiment while
+  preserving prediction integrity, provenance, and resource restrictions.
+- Put recognition tooling in `recognition/` and permitted test material,
+  annotations, and frozen acceptance criteria in `evaluation/`.
+- Evaluate a pretrained YOLO baseline before choosing a model or integrating
+  guided assembly; report unsupported classes honestly.
 
-The **fallback candidate** is the cascade: local YOLO-World proposes boxes at a
-low confidence threshold with class-agnostic NMS, then one Gemini call per image
-labels every proposal as one of the five classes or `none`. Images with no
-proposals make no API call, which matters for a later live-camera mode, but
-recall is bounded by YOLO's proposals: on the previous class list YOLO-World
-missed two of three projectors at any usable threshold.
+Existing restrictions on training, installation, weight downloads, credentials,
+cloud jobs, and uploads remain in force. Missing permitted images, local weights,
+or approved runtime access must produce `needs_input`, not simulated inference.
+Any new upload path or provider needs its own authorization. Existing Google
+upload permissions do not automatically cover new component photos.
 
-Gemini 3.8 Flash is kept for comparison only. On the free tier it is limited
-to 20 requests per day and returned timeouts and HTTP 503 errors in smoke tests,
-so a full run needs billing enabled.
-
-| Run | Runner | Config |
-| --- | --- | --- |
-| **Gemini 3.5 Flash-Lite (primary)** | `recognition/gemini_runner.py` | default `--model gemini-3.5-flash-lite`, `prompt-gemini-v2.txt` |
-| Cascade (fallback) | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v2.txt` |
-| Gemini 3.8 Flash | `recognition/gemini_runner.py` | `--model gemini-3.8-flash`, same prompt |
-| YOLO-World S / L / X | `recognition/yolo_runner.py` | `yolo_world_model.json`, `yolo_world_l_model.json`, `yolo_world_x_model.json` (same 5 prompts) |
-| YOLO26n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop and phone only) |
-
-`evaluation/score_detection.py` scores every run with the same greedy IoU ≥ 0.5
-matching. The decision rule is frozen in `evaluation/bakeoff_report_template.md`
-before any run.
-
-## Live mode (prototype, not evaluated)
-
-`recognition/live_runner.py` runs the cascade on a live feed. It is a prototype
-for the later live-camera product, not a bake-off run, and has no accuracy
-claim.
-
-- Each frame: YOLO-World (`yolo_world_l_model.json`, proposal confidence 0.1,
-  at most 20 proposals) proposes boxes.
-- A greedy IoU tracker (IoU ≥ 0.3) matches boxes to in-memory tracks; a track
-  is dropped after 15 missed frames. Ultralytics ByteTrack was not used because
-  it needs the uninstalled `lap` package.
-- Gemini is called only for tracks without a cached label, at most once every
-  `--min-call-interval` seconds (default 2.0). Each JSONL record says whether a
-  label came from `gemini` or `track_cache`, so a cached label is never shown
-  as fresh inference.
-- A new box is suppressed, and recorded as suppressed, when its IoU with a box
-  already matched this frame is ≥ 0.6 or at least 80% of it lies inside that
-  box. This stops part-of-device boxes (a laptop screen, a corner) from
-  becoming new tracks and stealing a device's label. Trade-off: a small device
-  fully inside a bigger one's box (a phone lying on a laptop) gets no track of
-  its own.
-- A `keyboard` or `monitor` box at least 80% inside any live laptop track,
-  including one missed for a few frames, is suppressed before track matching,
-  so a flickering laptop box never detaches the laptop's own keyboard or
-  screen.
-- A track only continues with a box of the same detector class: on glasses
-  frames a phone box overlapping the laptop's otherwise took over its track
-  and showed the laptop's cached label.
-- Live mode ignores proposals under 32 px on their short side
-  (`--min-box-side`), recording them as `too_small_proposals`. On 504×896
-  glasses frames such boxes were mostly false `smartwatch` hits that Gemini
-  confirmed (5 of 8), against 2 of 216 phone hits.
-- With a display, the main thread shows every camera frame while a worker
-  thread runs detection on the newest frame only; boxes trail a moving device
-  by up to one inference (~3 s on CPU). `--no-display` stays single-threaded.
-- `--allow-upload` is required because frames go to Google.
-
-## Meta glasses relay (Developer Mode prototype)
-
-The glasses cannot run the models, so the phone is only a relay:
-
-```text
-glasses camera → ScavRelay (iPhone, Meta DAT SDK) → HTTP POST /frame
-→ live_runner --listen on the owner's laptop → YOLO-World + Gemini
-→ tracks JSON back to the phone overlay
-```
-
-- `live_runner --listen HOST:PORT` replaces the local camera with JPEG frames
-  POSTed to `/frame`. It requires a per-run random bearer token, caps bodies at
-  5 MB, rejects frames that fail to decode, and feeds the unchanged live loop.
-  It returns the last finished tracks, so overlays trail by one inference.
-- `app/ios/ScavRelay` (SwiftUI, Meta Wearables DAT `MWDATCore`/`MWDATCamera`)
-  registers with the Meta AI app, streams the glasses camera (504×896, 7 fps),
-  posts frames, and draws returned boxes. Relay and network failures show as a
-  red banner, never as detections. The token is stored in the iOS Keychain.
-  DAT analytics are opted out. A DEBUG-only mock device plays a permitted local
-  clip in the simulator.
-- Gemini calls and API keys stay on the laptop. Frames cross the LAN as plain
-  HTTP behind the token, so only a trusted home network is acceptable.
-- Status: built and launched in the iOS simulator. On physical glasses,
-  registration and "no eligible device" errors are still being worked through;
-  no glasses frame has been recorded yet.
-
-## UI studies (mockups only)
-
-`design/` holds visual studies, not an application: a `DetectionBox` React
-component that places an original `xyxy` box over a frame by percentage without
-changing the detection, and "Steel & Steam" steampunk theme previews. Their
-boxes and labels are illustrative, not model output.
-
-## Stop conditions
-
-Do not install dependencies, download weights, use paid inference, start cloud
-jobs, collect a large dataset, read credentials, or modify global configuration,
-except for the owner-approved exceptions in `AGENTS.md` (Gemini calls, the
-one YOLO-World install and weights download, and the Developer-Mode iOS relay's
-DAT package).
-If runtime, local weights, or permitted images are absent, produce the harness,
-schemas, frozen mapping, tests, and blockers, then stop at `needs_input`.
-
-## Later application milestone
-
-Only after an evidence-based model decision may a separate application milestone
-add photo capture, educational cards, corrections, and saved collections. Its UI
-must distinguish model detections, user corrections, unsupported classes, and
-failures without presenting guesses as visual recognition.
+The next milestone is a runnable component-identification and guided LED-build
+evaluation for the selected parts. Automatic assembly checking is undecided. Application integration follows a documented
+review of those results. No component-recognition, circuit-verification, or
+learning-outcome claim is established by this specification alone.
