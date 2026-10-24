@@ -114,17 +114,31 @@ Known label noise (accept it, or fix with more data):
 
 ## 6. Continue training
 
-From `training\`:
+### v2 results (Windows, RTX 4070 Super, 21,185 images, yolo11n.pt base)
+
+Trained 49/50 epochs. Final checkpoint: `weights/scavscrap_v2_best.pt`.
+
+| Metric | Value |
+|---|---|
+| mAP50 | 0.683 |
+| mAP50-95 | 0.504 |
+| Box loss | 0.764 |
+| Class loss | 0.626 |
+
+~2–3 min/epoch on the 4070 Super. Strong improvement over v1 (0.38–0.40 mAP50 at epoch 4).
+
+To continue from v2:
 
 ```powershell
-.venv\Scripts\yolo detect train data=datasets/scavscrap/data.yaml model=weights/scavscrap_v1_best.pt epochs=50 patience=10 imgsz=640 batch=32 workers=8 device=0 name=scavscrap_v2
+.venv\Scripts\yolo detect train data=datasets/scavscrap/data.yaml model=weights/scavscrap_v2_best.pt epochs=50 patience=10 imgsz=640 batch=32 workers=8 device=0 name=scavscrap_v3
 ```
 
-- v1 history (Apple M4, 13.4k images): mAP50 per epoch 0.40, 0.39, 0.32, 0.38.
-  It was stopped at epoch 4 to add data. One epoch took about 21 min on the M4.
-  Expect roughly 2–4 min on the 4070 Ti (estimate, not measured).
-- Start a new run from a `.pt` file. Do not use `resume=True` with a checkpoint
-  from the Mac: it stores absolute macOS paths.
+To train a larger model (yolo11s for ~3x more accuracy at ~3x compute):
+
+```powershell
+.venv\Scripts\yolo detect train data=datasets/scavscrap/data.yaml model=yolo11s.pt epochs=50 patience=10 imgsz=640 batch=16 workers=8 device=0 name=scavscrap_v2s
+```
+
 - `runs\detect\<name>\weights\best.pt` updates every epoch, so it is usable
   mid-run. Check per-class results with
   `yolo detect val data=datasets/scavscrap/data.yaml model=runs/detect/<name>/weights/best.pt device=0`.
