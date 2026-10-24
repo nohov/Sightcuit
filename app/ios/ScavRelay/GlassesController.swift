@@ -111,23 +111,26 @@ final class GlassesController: ObservableObject {
     }
   }
 
-  /// Speaks the description of the biggest described box (the item nearest the wearer) from the last relay reply.
+  /// Speaks every described box from the last relay reply in turn, biggest (nearest the wearer) first.
   func describeCurrent() {
-    let track = result?.tracks
-      .filter { $0.description != nil }
-      .max { area($0.box_xyxy_pixels) < area($1.box_xyxy_pixels) }
-    speak(track?.description ?? "Nothing identified yet. Hold the item in view for a few seconds.")
+    var texts: [String] = []
+    for track in (result?.tracks ?? []).sorted(by: { area($0.box_xyxy_pixels) > area($1.box_xyxy_pixels) }) {
+      // Two items of the same product share one text; say it once.
+      if let text = track.description, !texts.contains(text) { texts.append(text) }
+    }
+    speak(texts.isEmpty ? ["Nothing identified yet. Hold the item in view for a few seconds."] : texts)
   }
 
   private func area(_ b: [Double]) -> Double { b.count == 4 ? (b[2] - b[0]) * (b[3] - b[1]) : 0 }
 
-  private func speak(_ text: String) {
+  private func speak(_ texts: [String]) {
     let audio = AVAudioSession.sharedInstance()
     // .playback, not .playAndRecord: recording forces the low-quality hands-free Bluetooth profile.
     try? audio.setCategory(.playback, mode: .spokenAudio)
     try? audio.setActive(true)
     speech.stopSpeaking(at: .immediate)
-    speech.speak(AVSpeechUtterance(string: text))
+    // The synthesizer queues utterances and plays them back to back.
+    for text in texts { speech.speak(AVSpeechUtterance(string: text)) }
     // Shows whether the voice goes to the glasses (Bluetooth) or the phone speaker.
     status = "Audio out: " + audio.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ", ")
   }

@@ -80,7 +80,7 @@ prints at startup. See `frontend/README.md`.
 ### Spoken descriptions
 
 Short-press the capture button on the glasses while streaming: the phone speaks the
-description of the biggest identified box, using Apple's built-in voice, and the
+description of each identified item in turn, nearest (biggest box) first, using Apple's built-in voice, and the
 stream keeps running. Press again while it is speaking to stop. This uses Meta's
 Inputs capability, which Meta marks as beta; if it does not attach, the status line
 says so. Fallback: tap the glasses once. That pauses (freezes) the stream and speaks;
