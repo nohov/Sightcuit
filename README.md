@@ -65,9 +65,13 @@ can otherwise download missing weights automatically.
 COCO covers only one of the five classes, so the model decision is a bake-off
 of detection runs on the same box-annotated photos:
 
-- **Cascade, the primary candidate** (`python3 -m recognition.cascade_runner`):
+- **Gemini 3.5 Flash-Lite, the primary candidate**
+  (`python3 -m recognition.gemini_runner`, default model): one whole-image call
+  returns labelled boxes.
+- **Cascade, the fallback candidate** (`python3 -m recognition.cascade_runner`):
   local YOLO-World proposes boxes, then one Gemini call per image labels each
-  box as a target class or `none`. Images with no proposals make no API call.
+  box as a target class or `none`. Images with no proposals make no API call,
+  but objects YOLO misses (such as some projectors) cannot be recovered.
 - **Gemini** (`python3 -m recognition.gemini_runner`): cloud API, all five
   classes from the prompt, boxes but no confidence. Needs `GEMINI_API_KEY` and
   upload-permitted images.

@@ -90,17 +90,27 @@ reported as detection or segmentation.
 ## Gemini vs YOLO bake-off
 
 The owner approved a detection bake-off on one reviewed, box-annotated test set.
-The **primary candidate** is the cascade: local YOLO-World proposes boxes at a
+
+The **primary candidate** is whole-image Gemini 3.5 Flash-Lite: one call per
+image returns labelled boxes for the five classes. In unscored smoke tests on
+15 photos it found all 21 target devices.
+
+The **fallback candidate** is the cascade: local YOLO-World proposes boxes at a
 low confidence threshold with class-agnostic NMS, then one Gemini call per image
-labels every proposal as one of the five classes or `none`. YOLO supplies
-locations; Gemini supplies labels and rejects junk boxes. Images with no
-proposals make no API call. Recall is bounded by YOLO's proposals.
+labels every proposal as one of the five classes or `none`. Images with no
+proposals make no API call, which matters for a later live-camera mode, but
+recall is bounded by YOLO's proposals: YOLO-World missed two of three
+projectors at any usable threshold.
+
+Gemini 3.8 Flash is kept for comparison only. On the free tier it is limited
+to 20 requests per day and returned timeouts and HTTP 503 errors in smoke tests,
+so a full run needs billing enabled.
 
 | Run | Runner | Config |
 | --- | --- | --- |
-| **Cascade (primary)** | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v1.txt` |
-| Gemini 3.8 Flash | `recognition/gemini_runner.py` | `--model gemini-3.8-flash`, `prompt-gemini-v1.txt` |
-| Gemini 3.5 Flash-Lite | `recognition/gemini_runner.py` | `--model gemini-3.5-flash-lite`, same prompt |
+| **Gemini 3.5 Flash-Lite (primary)** | `recognition/gemini_runner.py` | default `--model gemini-3.5-flash-lite`, `prompt-gemini-v1.txt` |
+| Cascade (fallback) | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v1.txt` |
+| Gemini 3.8 Flash | `recognition/gemini_runner.py` | `--model gemini-3.8-flash`, same prompt |
 | YOLO-World S / L / X | `recognition/yolo_runner.py` | `yolo_world_model.json`, `yolo_world_l_model.json`, `yolo_world_x_model.json` (same 5 prompts) |
 | YOLO11n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop only) |
 

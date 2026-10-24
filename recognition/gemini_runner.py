@@ -25,7 +25,7 @@ from recognition.yolo_runner import TARGET_CLASSES, manifest_entries
 
 
 PROMPT_VERSION = "gemini-detect-v1"
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_VERSION = "v1beta"
 ENDPOINT = "https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent"
 HERE = Path(__file__).resolve().parent

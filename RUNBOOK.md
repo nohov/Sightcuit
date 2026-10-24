@@ -64,7 +64,7 @@ python3 recognition/yolo_runner.py \
   --device cpu
 ```
 
-The primary candidate, the cascade, needs both the YOLO-World L weights and the
+The fallback candidate, the cascade, needs both the YOLO-World L weights and the
 Gemini key. It sends an image to Google only when YOLO proposes at least one box:
 
 ```sh
@@ -86,7 +86,7 @@ export GEMINI_API_KEY=...   # never commit or log
 python3 -m recognition.gemini_runner \
   evaluation/manifest.csv \
   evaluation/gemini_predictions.jsonl \
-  --model gemini-3.8-flash
+  --model gemini-3.5-flash-lite   # primary; gemini-3.8-flash needs billing beyond 20 requests/day
 ```
 
 ## 6. Score only after box annotations exist
