@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEVICES, DEVICE_IDS, lookup } from "./devices.js";
+import { DEVICES, lookup } from "./devices.js";
 import { FRAME_HEIGHT, FRAME_WIDTH, subscribe } from "./feed.js";
 import DeviceModel from "./components/DeviceModels.jsx";
 
@@ -210,7 +210,6 @@ function AssayPanel({ device }) {
 export default function App() {
   const [frame, setFrame] = useState(null);
   const [paused, setPaused] = useState(false);
-  const [pinned, setPinned] = useState("auto"); // "auto" follows the feed
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
 
@@ -225,45 +224,13 @@ export default function App() {
   }, []);
 
   const track = useMemo(() => primaryTrack(frame), [frame]);
-  const activeId = pinned === "auto" ? track?.gemini_label ?? null : pinned;
+  const activeId = track?.gemini_label ?? null;
   const known = Boolean(activeId && DEVICES[activeId]);
   const device = lookup(activeId);
 
-  const tabs = [{ id: "auto", label: "Auto" }, ...DEVICE_IDS.map((id) => ({ id, label: DEVICES[id].label }))];
-
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <Cog size={40} className="cog accent-stroke" />
-          <div>
-            <div className="wordmark">SCAVSCRAP</div>
-            <div className="subtitle">Salvage Survey Engine · Session No. 001</div>
-          </div>
-        </div>
-
-        <nav className="tabs" aria-label="Device class">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              aria-pressed={pinned === t.id}
-              className={`tab ${pinned === t.id ? "on" : ""}`}
-              onClick={() => setPinned(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="actions">
-          <span className="status-pill mono">
-            <span className={`rec-dot ${paused ? "" : "blink"}`} />
-            {paused ? "PAUSED" : "RECORDING"}
-          </span>
-          <button type="button" className="primary-btn">Export Ledger</button>
-        </div>
-      </header>
+      <h1 className="visually-hidden">ScavScrap scan dashboard</h1>
 
       <div className="row top">
         <RecordingPanel frame={frame} elapsed={(now - startedAt) / 1000} paused={paused} onTogglePause={() => setPaused((p) => !p)} />
@@ -272,7 +239,7 @@ export default function App() {
       </div>
 
       <div className="row bottom">
-        <ParticularsPanel device={device} track={pinned === "auto" ? track : null} known={known} activeId={activeId} />
+        <ParticularsPanel device={device} track={track} known={known} activeId={activeId} />
         <AssayPanel device={device} />
       </div>
     </div>

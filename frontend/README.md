@@ -44,8 +44,8 @@ The dashboard reads frames shaped like the JSONL records that
   The backend does not serve this WebSocket yet; `live_runner.py` would need a
   small sender added.
 
-The **Auto** tab follows the feed; the device tabs pin the dashboard to one
-device for review.
+The dashboard always follows the feed: it shows whichever device the most
+confident labelled track is.
 
 ## Structure
 
