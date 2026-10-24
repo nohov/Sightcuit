@@ -83,9 +83,12 @@ Live camera (cascade + track cache): the trained detector
 both the defaults) runs on every frame, boxes are
 matched to in-memory tracks by IoU, and Gemini labels only tracks with no cached
 label (at most one call per `--min-call-interval`, default 2 s). Frames with new
-tracks are uploaded to Google, so `--allow-upload` is required. Live labels are free text from `recognition/prompt-live-v1.txt`: brand and
-product family when visible ("Apple MacBook"), never an exact model, else a generic
-type ("smartwatch"); "none" boxes are hidden from `detections`. Press `q` to quit:
+tracks are uploaded to Google, so `--allow-upload` is required. Live labels are free text from `recognition/prompt-live-v2.txt`: brand and
+product family when a logo or family-unique design is visible ("Apple iPhone"),
+never an exact model, else a generic type ("smartphone") plus a hint for the user
+("move closer", "improve lighting", "hold still", "show the logo side"). Gemini
+sees the full frame and a full-resolution close-up of each box. Generic labels are
+re-asked every 10 s while in view. Only Gemini-confirmed tech items are drawn. Press `q` to quit:
 
 ```sh
 set -a; . ./.env; set +a

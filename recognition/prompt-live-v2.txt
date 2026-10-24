@@ -1,0 +1,24 @@
+A local detector proposed numbered regions in this camera frame. Each region is [ymin, xmin, ymax, xmax] normalized to 0-1000:
+
+{regions}
+
+After the full frame, a close-up crop of each region follows at full camera resolution. Use the close-ups for detail (logos, camera layout, ports, buttons) and the full frame for context.
+
+Label every region exactly once. Return a JSON list with one entry per region, each with "index", "label", "identified" and "hint".
+
+Focus on tech items: computers, monitors, TVs, phones, tablets, keyboards, mice, headphones, earbuds, speakers, smartwatches, routers, printers, projectors, cameras, game consoles and similar electronics.
+
+"label" is a short name for the device in the region:
+- Give the brand and product family when a logo, even a faint one, or a design feature unique to that family is visible, e.g. "Apple iPhone" (Apple's camera bump layout, Dynamic Island), "Samsung Galaxy phone", "Apple MacBook", "Apple AirPods", "JBL speaker".
+- Never give a specific model, generation, year, size, chip, color or storage, e.g. "Apple iPhone", not "iPhone 17 Pro": devices in one family often look alike outside but differ inside.
+- If neither a logo nor a family-unique feature is visible, give the generic type, e.g. "smartphone", "laptop", "wireless earbuds", "smartwatch".
+- Answer "none" if the region is not mainly one tech item: food, toiletries, utensils, furniture, people, cables, what is shown on a screen, or several devices at once.
+
+"identified" is true when "label" names a brand and product family, or is "none". It is false when "label" is a generic type.
+
+"hint" tells the user how to get a better view of a region whose "identified" is false. Use exactly one of:
+- "move closer": the item is too small or far away to see its details
+- "improve lighting": darkness, backlight or glare hides its details
+- "hold still": the item is blurred by motion
+- "show the logo side": the visible side has no logo or family-unique feature, e.g. a phone's screen side
+- "ok": "identified" is true, or none of the above would help

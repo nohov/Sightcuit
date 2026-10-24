@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import closing, contextmanager
 import json
@@ -21,7 +22,7 @@ from typing import Any, Callable, Iterable, Iterator
 import cv2
 
 from recognition.cascade_runner import (
-    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, parse_labels, region_text,
+    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, region_text,
 )
 from recognition.gemini_runner import API_VERSION, Transport, build_payload, gemini_transport, response_text
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
@@ -40,14 +41,26 @@ MAX_MISSED = 15
 # phone at 10%) otherwise used most Gemini calls, and each call blocks the next for ~7-15 s.
 MIN_TRACK_FRAMES = 5
 DEFAULT_MIN_CALL_INTERVAL = 2.0
+# A generic label ("smartphone") is re-asked this often while the item stays in view, so following the hint
+# (move closer, show the logo side) can upgrade it to a brand and product family.
+REASK_INTERVAL = 10.0
+# Each close-up adds this fraction of the box on every side, so edges like a camera bump stay in the crop.
+CROP_PAD = 0.15
+MAX_LABEL_CHARS = 60
 # Live labels are free text (brand + product family, or a generic type), not the five scored classes.
-PROMPT_VERSION = "live-v1"
+PROMPT_VERSION = "live-v2"
+HINTS = ("ok", "move closer", "improve lighting", "hold still", "show the logo side")
 RESPONSE_SCHEMA = {
     "type": "ARRAY",
     "items": {
         "type": "OBJECT",
-        "properties": {"index": {"type": "INTEGER"}, "label": {"type": "STRING"}},
-        "required": ["index", "label"],
+        "properties": {
+            "index": {"type": "INTEGER"},
+            "label": {"type": "STRING"},
+            "identified": {"type": "BOOLEAN"},
+            "hint": {"type": "STRING", "enum": list(HINTS)},
+        },
+        "required": ["index", "label", "identified", "hint"],
     },
 }
 
@@ -81,6 +94,47 @@ def _shutdown_on_exit(pool: Executor, owned: bool) -> Iterator[None]:
             pool.shutdown(wait=False, cancel_futures=True)
 
 
+def parse_answers(raw: Any, count: int) -> list[dict[str, Any]]:
+    """Require exactly one valid {label, identified, hint} per proposal index; hint "ok" becomes None."""
+    if not isinstance(raw, list):
+        raise ValueError("response must be a JSON list")
+    answers: dict[int, dict[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"index", "label", "identified", "hint"}:
+            raise ValueError("each entry must contain only index, label, identified and hint")
+        index, label = item["index"], item["label"]
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < count:
+            raise ValueError(f"invalid region index {index!r}")
+        if index in answers:
+            raise ValueError(f"region {index} labelled twice")
+        if not isinstance(label, str) or not 0 < len(label.strip()) <= MAX_LABEL_CHARS:
+            raise ValueError(f"region {index} has invalid label {label!r}")
+        if not isinstance(item["identified"], bool) or item["hint"] not in HINTS:
+            raise ValueError(f"region {index} has invalid identified or hint")
+        answers[index] = {"label": label.strip(), "identified": item["identified"],
+                          "hint": None if item["hint"] == "ok" else item["hint"]}
+    if len(answers) != count:
+        raise ValueError(f"expected {count} labels, received {len(answers)}")
+    return [answers[index] for index in range(count)]
+
+
+def crop_parts(frame: Any, proposals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A padded full-resolution close-up per region, as Gemini request parts after the full frame."""
+    height, width = frame.shape[:2]
+    parts = []
+    for index, proposal in enumerate(proposals):
+        x1, y1, x2, y2 = proposal["box_xyxy_pixels"]
+        pad_x, pad_y = (x2 - x1) * CROP_PAD, (y2 - y1) * CROP_PAD
+        crop = frame[int(max(0, y1 - pad_y)):int(min(height, y2 + pad_y)),
+                     int(max(0, x1 - pad_x)):int(min(width, x2 + pad_x))]
+        encoded, jpeg = cv2.imencode(".jpg", crop)
+        if not encoded:
+            raise RuntimeError("could not JPEG-encode region close-up")
+        parts += [{"text": f"Close-up of region {index}:"},
+                  {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg.tobytes()).decode("ascii")}}]
+    return parts
+
+
 class TrackCache:
     """In-memory, per-session map from track ID to its proposal and cached Gemini label."""
 
@@ -105,6 +159,7 @@ class TrackCache:
                 continue
             else:
                 track = self.tracks[self.next_id] = {"track_id": self.next_id, "label": None, "labelled_frame": None,
+                                                     "identified": False, "hint": None, "asked_at": -math.inf,
                                                      "seen": 0}
                 self.next_id += 1
             track.update(proposal=proposal, missed=0, seen=track["seen"] + 1)
@@ -134,11 +189,12 @@ def run_live(
     thinking_level: str | None = None,
     executor: Executor | None = None,
     min_track_frames: int = MIN_TRACK_FRAMES,
+    reask_interval: float = REASK_INTERVAL,
 ) -> None:
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
         raise ValueError("confidence and IoU thresholds must be between 0 and 1")
-    template = (HERE / "prompt-live-v1.txt").read_text(encoding="utf-8")
+    template = (HERE / "prompt-live-v2.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
     in_flight: tuple[Future, list[dict[str, Any]]] | None = None
@@ -163,25 +219,31 @@ def run_live(
                     raise ValueError("YOLO and camera frame disagree on image size")
                 proposals = normalize_summary(result["raw_summary"], size, proposal_confidence, config)
                 tracks, suppressed = cache.update(sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS])
-                pending = [track for track in tracks if track["label"] is None and track["seen"] >= min_track_frames]
-                # Only unlabelled tracks go to Gemini; cached labels cost no API call.
-                if in_flight is None and pending and clock() - last_call >= min_call_interval:
-                    last_call = clock()
+                now = clock()
+                # Unlabelled tracks, and generic labels due a retry, go to Gemini; other cached labels cost no call.
+                pending = [track for track in tracks if track["seen"] >= min_track_frames and (
+                    track["label"] is None or (track["label"] != "none" and not track["identified"]
+                                               and now - track["asked_at"] >= reask_interval))]
+                if in_flight is None and pending and now - last_call >= min_call_interval:
+                    last_call = now
                     encoded, jpeg = cv2.imencode(".jpg", frame)
                     if not encoded:
                         raise RuntimeError("could not JPEG-encode camera frame")
-                    prompt = template.replace("{regions}", region_text([t["proposal"] for t in pending], size))
+                    proposals = [t["proposal"] for t in pending]
+                    prompt = template.replace("{regions}", region_text(proposals, size))
                     api_called = True
                     payload = build_payload(jpeg.tobytes(), "image/jpeg", prompt, thinking_level, RESPONSE_SCHEMA)
+                    payload["contents"][0]["parts"] += crop_parts(frame, proposals)
+                    for track in pending:
+                        track["asked_at"] = now
                     in_flight = (pool.submit(transport, payload, model, timeout), pending)
                 # Gemini runs off the detection thread, so boxes keep updating; labels land on the frame it finishes.
                 if in_flight is not None and in_flight[0].done():
                     (future, sent), in_flight = in_flight, None
                     response = future.result()
                     raw_response = response_text(response)
-                    labels = parse_labels(json.loads(raw_response), len(sent), allowed=None)
-                    for track, label in zip(sent, labels):
-                        track["label"], track["labelled_frame"] = label, frame_index
+                    for track, answer in zip(sent, parse_answers(json.loads(raw_response), len(sent))):
+                        track.update(answer, labelled_frame=frame_index)
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 logging.exception("Live frame failed frame=%d", frame_index)
@@ -190,6 +252,8 @@ def run_live(
                 "track_id": track["track_id"],
                 "proposal": track["proposal"],
                 "gemini_label": track["label"],
+                "identified": track["identified"],
+                "hint": track["hint"],
                 "labelled_frame": track["labelled_frame"],
                 "label_source": None if track["label"] is None
                 else "gemini" if track["labelled_frame"] == frame_index else "track_cache",
@@ -230,6 +294,8 @@ def run_live(
                     "project_class": entry["proposal"]["project_class"],
                     "mapping_status": entry["proposal"]["mapping_status"],
                     "label_source": entry["label_source"],
+                    "identified": entry["identified"],
+                    "hint": entry["hint"],
                 } for entry in entries if entry["gemini_label"] not in (None, "none")],
                 "error": error,
             }
@@ -288,7 +354,8 @@ def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
             continue
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 0), 2)
-        cv2.putText(frame, f"#{track['track_id']} {track['label']}", (x1, max(y1 - 6, 12)),
+        hint = f" - {track['hint']}" if track["hint"] else ""
+        cv2.putText(frame, f"#{track['track_id']} {track['label']}{hint}", (x1, max(y1 - 6, 12)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
 
 

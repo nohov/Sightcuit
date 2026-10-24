@@ -1,9 +1,11 @@
+import base64
 from concurrent.futures import Future
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
+import cv2
 import numpy as np
 
 from recognition import live_runner as runner
@@ -36,18 +38,21 @@ class FakePredictor:
 class FakeTransport:
     """Labels every region it is sent as printer and remembers each prompt's region lines."""
 
-    def __init__(self, fail_first=False, label="printer"):
+    def __init__(self, fail_first=False, label="printer", identified=True, hint="ok"):
         self.calls = []
+        self.payloads = []
         self.fail_first = fail_first
-        self.label = label
+        self.label, self.identified, self.hint = label, identified, hint
 
     def __call__(self, payload, model, timeout):
         prompt = payload["contents"][0]["parts"][1]["text"]
         regions = [line for line in prompt.splitlines() if line[:1].isdigit() and ": [" in line]
         self.calls.append(regions)
+        self.payloads.append(payload)
         if self.fail_first and len(self.calls) == 1:
             raise RuntimeError("Gemini HTTP 503: overloaded")
-        items = [{"index": i, "label": self.label} for i in range(len(regions))]
+        items = [{"index": i, "label": self.label, "identified": self.identified, "hint": self.hint}
+                 for i in range(len(regions))]
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
@@ -157,9 +162,9 @@ class LiveRunnerTests(unittest.TestCase):
 
     def test_calls_are_spaced_by_min_interval(self):
         transport = FakeTransport()
-        # clock is read on the first frame's check and on its call, then once per later check
+        # clock is read once per frame
         records = run([[row(A)], [row(A), row(B)], [row(A), row(B)]], transport,
-                      min_call_interval=2.0, times=[0, 0, 1, 2, 2])
+                      min_call_interval=2.0, times=[0, 1, 2])
         self.assertEqual([r["api_called"] for r in records], [True, False, True])
         self.assertIsNone(records[1]["raw_predictions"][1]["label_source"])
 
@@ -201,12 +206,38 @@ class LiveRunnerTests(unittest.TestCase):
         frame = np.zeros((200, 300, 3), dtype=np.uint8)
         proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0]}
         runner.draw_tracks(frame, [
-            {"track_id": 0, "label": "none", "proposal": proposal},
-            {"track_id": 1, "label": None, "proposal": proposal},
+            {"track_id": 0, "label": "none", "hint": None, "proposal": proposal},
+            {"track_id": 1, "label": None, "hint": None, "proposal": proposal},
         ])
         self.assertEqual(frame.sum(), 0)
-        runner.draw_tracks(frame, [{"track_id": 2, "label": "Apple iPhone", "proposal": proposal}])
+        runner.draw_tracks(frame, [{"track_id": 2, "label": "smartphone", "hint": "move closer", "proposal": proposal}])
         self.assertGreater(frame.sum(), 0)
+
+    def test_each_region_gets_a_full_resolution_close_up(self):
+        transport = FakeTransport()
+        run([[row(A), row(B, 0.8)]], transport)
+        parts = transport.payloads[0]["contents"][0]["parts"]
+        self.assertEqual([p.get("text") for p in parts[2::2]], ["Close-up of region 0:", "Close-up of region 1:"])
+        crop = cv2.imdecode(np.frombuffer(base64.b64decode(parts[3]["inline_data"]["data"]), np.uint8), cv2.IMREAD_COLOR)
+        self.assertEqual(crop.shape[:2], (104, 156))  # box A 120x80 plus 15% padding, clipped at the top edge
+
+    def test_generic_label_shows_hint_and_is_reasked_after_interval(self):
+        transport = FakeTransport(label="smartphone", identified=False, hint="move closer")
+        records = run([[row(A)]] * 4, transport, times=[0, 5, 10, 11])
+        self.assertEqual([r["api_called"] for r in records], [True, False, True, False])
+        self.assertEqual(records[1]["detections"][0]["hint"], "move closer")
+        self.assertFalse(records[1]["detections"][0]["identified"])
+
+    def test_identified_label_is_never_reasked(self):
+        transport = FakeTransport(label="Apple iPhone")
+        records = run([[row(A)]] * 3, transport, times=[0, 50, 100])
+        self.assertEqual(len(transport.calls), 1)
+        self.assertIsNone(records[2]["detections"][0]["hint"])
+
+    def test_answer_missing_hint_is_an_error(self):
+        transport = FakeTransport(hint="try harder")
+        records = run([[row(A)]], transport)
+        self.assertIn("invalid identified or hint", records[0]["error"])
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))
