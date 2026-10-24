@@ -94,7 +94,14 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
   const [videoFailed, setVideoFailed] = useState(false);
   const src = paused ? null : videoUrl(relay);
 
+  // Remount the video whenever the feed (re)connects: an MJPEG <img> never retries after the relay restarts.
+  const [videoAttempt, setVideoAttempt] = useState(0);
   useEffect(() => setVideoFailed(false), [src]);
+  useEffect(() => {
+    if (status !== "live") return;
+    setVideoFailed(false);
+    setVideoAttempt((n) => n + 1);
+  }, [status]);
 
   // Fit the frame inside the screen area, keeping its aspect ratio.
   const scale = Math.min(screen.width / frameW, screen.height / frameH) || 0;
@@ -142,7 +149,7 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
 
           <div className="stage" style={stage}>
             {showVideo && (
-              <img className="video" src={src} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+              <img key={videoAttempt} className="video" src={src} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
 
             {/* Detection boxes, scaled from frame pixels to the drawn frame */}

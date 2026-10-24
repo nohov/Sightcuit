@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ScavScrap DetectionBox study</title>
+    <link rel="stylesheet" href="DetectionBox.css">
+    <style>
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #111b1c; color: #d7d3c3; font: 12px ui-monospace, monospace; }
+      .study { width: min(100%, 1120px); }
+      .heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; color: #d7aa6b; letter-spacing: .15em; }
+      .frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: linear-gradient(180deg, #78817a 0 58%, #3b423c 58% 61%, #45403a 61%); box-shadow: 0 0 0 1px #bd8f54; }
+      .frame::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 36%, rgba(6, 13, 13, .52)); pointer-events: none; }
+      .window { position: absolute; left: 10%; top: 12%; width: 20%; height: 43%; border: 12px solid #47433b; background: linear-gradient(130deg, #a2ada2, #d2ba8e); box-shadow: inset 0 0 0 5px #637c79; }
+      .desk { position: absolute; left: 0; right: 0; bottom: 0; height: 21%; border-top: 10px solid #6c513b; background: #302a27; }
+      .monitor { position: absolute; left: 38%; top: 21%; width: 37%; height: 44%; border: 14px solid #242a29; border-bottom-width: 19px; border-radius: 8px; background: radial-gradient(circle at 50% 45%, #275f62, #10282d); box-shadow: 0 0 0 4px #665d4a, 12px 14px 15px rgba(0, 0, 0, .4); }
+      .monitor::after { content: ""; position: absolute; left: 40%; top: 100%; width: 20%; height: 26%; background: #242a29; }
+      .note { margin-top: 12px; color: #a9b8b3; line-height: 1.5; letter-spacing: .04em; }
+      @media (max-width: 600px) { body { padding: 12px; } .heading { font-size: 10px; } .window { border-width: 5px; } .monitor { border-width: 7px; border-bottom-width: 10px; } }
+    </style>
+    <script defer src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script defer src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script defer src="DetectionBox.js"></script>
+    <script defer src="preview.js"></script>
+  </head>
+  <body><main class="study"><div class="heading"><span>SCAVSCRAP / DETECTION BOX</span><span>VISUAL STUDY 01</span></div><div class="frame" id="frame"><div class="window"></div><div class="desk"></div><div class="monitor"></div></div><div class="note">Illustrative box placement. No model inference or tracking result.</div></main></body>
+</html>

@@ -44,8 +44,9 @@ glasses relay (`recognition/live_runner.py --listen`, see `app/ios/README.md`).
 3. Start streaming from the ScavRelay app. Video appears as soon as frames
    arrive; boxes follow each finished detection.
 
-The relay prints a new token every run, so open the new link (or use
-**Relay settings** in the recording panel) after restarting it.
+Without `SCAVSCRAP_RELAY_TOKEN` in `.env` the relay prints a new token every
+run, so open the new link (or use **Relay settings** in the recording panel)
+after restarting it. With a fixed token the dashboard reconnects by itself.
 
 The relay serves two read-only endpoints, both needing `?token=`:
 
