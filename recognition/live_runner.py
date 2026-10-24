@@ -17,6 +17,7 @@ import secrets
 import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
+from urllib.parse import parse_qs, urlsplit
 
 import cv2
 import numpy as np
@@ -301,6 +302,29 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
 
 
 MAX_RELAY_FRAME_BYTES = 5 * 1024 * 1024
+STREAM_POLL_SECONDS = 0.03
+EVENTS_KEEPALIVE_SECONDS = 15.0
+STREAM_JPEG_QUALITY = 80
+
+
+def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
+    """The last finished detection, shaped like the frames the dashboard reads (see frontend/src/feed.js)."""
+    frame_index = shown.get("seq", 0) - 1
+    return {
+        "frame_index": frame_index,
+        "timestamp": time.time(),
+        "image_size_hw_pixels": shown.get("image_size"),
+        "tracks": [{
+            "track_id": track["track_id"],
+            "proposal": {
+                "box_xyxy_pixels": track["proposal"]["box_xyxy_pixels"],
+                "confidence": track["proposal"].get("confidence"),
+            },
+            "gemini_label": track.get("label"),
+            "label_source": None if track.get("label") is None
+            else "gemini" if track.get("labelled_frame") == frame_index else "track_cache",
+        } for track in shown.get("tracks", [])],
+    }
 
 
 def make_relay_server(
@@ -308,6 +332,11 @@ def make_relay_server(
     shown: dict[str, Any], detector_alive: Callable[[], bool],
 ) -> ThreadingHTTPServer:
     """HTTP endpoint for the iOS glasses relay: POST /frame with a JPEG, get the last finished tracks back.
+
+    The dashboard reads two GET endpoints, authorized with ?token= because browsers cannot set headers on
+    <img> or EventSource requests:
+      /stream.mjpg  newest relayed frame as an MJPEG stream (no boxes drawn; the dashboard draws them)
+      /events       Server-Sent Events, one dashboard_record() per finished detection
 
     shortcut: plain HTTP on the LAN behind a bearer token; add TLS or a tunnel before using shared networks.
     """
@@ -319,8 +348,67 @@ def make_relay_server(
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
+
+        def start_stream(self, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            url = urlsplit(self.path)
+            supplied = (parse_qs(url.query).get("token") or [""])[0]
+            if url.path not in ("/stream.mjpg", "/events"):
+                return self.reply(404, {"error": "not found"})
+            if not hmac.compare_digest(f"Bearer {supplied}".encode(), expected):
+                return self.reply(401, {"error": "bad token"})
+            try:
+                if url.path == "/stream.mjpg":
+                    self.stream_frames()
+                else:
+                    self.stream_events()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser closed the tab or reconnected
+
+        def stream_frames(self) -> None:
+            self.start_stream("multipart/x-mixed-replace; boundary=frame")
+            last = None
+            while detector_alive():
+                frame = shown.get("frame")
+                if frame is None or frame is last:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                last = frame
+                encoded, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY])
+                if not encoded:
+                    continue
+                data = jpeg.tobytes()
+                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                 + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+                self.wfile.flush()
+
+        def stream_events(self) -> None:
+            self.start_stream("text/event-stream")
+            last_seq = None
+            last_write = time.monotonic()
+            while detector_alive():
+                seq = shown.get("seq", 0)
+                if seq and seq != last_seq:
+                    last_seq = seq
+                    payload = json.dumps(dashboard_record(shown), separators=(",", ":"))
+                    self.wfile.write(f"data: {payload}\n\n".encode())
+                elif time.monotonic() - last_write >= EVENTS_KEEPALIVE_SECONDS:
+                    self.wfile.write(b": keepalive\n\n")
+                else:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                self.wfile.flush()
+                last_write = time.monotonic()
 
         def do_POST(self) -> None:
             if self.path != "/frame":
@@ -373,12 +461,13 @@ def serve_relay(
 ) -> None:
     """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails."""
     latest = LatestFrame()
-    shown: dict[str, Any] = {"tracks": [], "image_size": None, "frame": None}
+    shown: dict[str, Any] = {"tracks": [], "image_size": None, "frame": None, "seq": 0}
     failure: list[BaseException] = []
 
     def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
         shown["tracks"] = [dict(track) for track in tracks]  # snapshot: the worker keeps mutating the cache
         shown["image_size"] = list(frame.shape[:2])
+        shown["seq"] += 1  # one per finished detection; tells /events there is a new record
         return not latest.stopped
 
     def work() -> None:
@@ -392,6 +481,8 @@ def serve_relay(
     worker.start()
     # Token goes to the terminal only, never the log file.
     print(f"relay listening on {host}:{server.server_address[1]}; token {token}", flush=True)
+    print(f"dashboard: open http://localhost:5173/?relay=http://localhost:{server.server_address[1]}"
+          f"&token={token}", flush=True)
     # macOS only allows OpenCV windows on the main thread, so the server moves off it when displaying.
     server_thread = threading.Thread(target=server.serve_forever, name="relay-server")
     try:

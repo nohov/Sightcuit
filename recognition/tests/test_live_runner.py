@@ -191,6 +191,48 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
                                             "label": "speaker"}], "image_size_hw_pixels": [200, 300]})
 
+    def get(self, path):
+        return urllib.request.urlopen(f"http://127.0.0.1:{self.server.server_address[1]}{path}", timeout=5)
+
+    def test_dashboard_streams_need_the_token(self):
+        for path in ("/events?token=wrong", "/stream.mjpg"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(path)
+            self.assertEqual(caught.exception.code, 401)
+
+    def test_events_send_the_last_detection_as_a_dashboard_record(self):
+        self.shown.update(seq=3, tracks=[{"track_id": 4, "label": "laptop", "labelled_frame": 2,
+                                          "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "confidence": 0.5}}])
+        with self.get("/events?token=secret") as response:
+            self.assertEqual(response.headers["Content-Type"], "text/event-stream")
+            self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+            line = response.readline().decode()
+        record = json.loads(line.removeprefix("data: "))
+        self.assertEqual(record["frame_index"], 2)
+        self.assertEqual(record["image_size_hw_pixels"], [200, 300])
+        self.assertEqual(record["tracks"], [{"track_id": 4, "gemini_label": "laptop", "label_source": "gemini",
+                                             "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
+                                                          "confidence": 0.5}}])
+
+    def test_stream_sends_the_newest_relayed_frame_as_jpeg(self):
+        self.shown["frame"] = np.zeros((20, 30, 3), dtype=np.uint8)
+        with self.get("/stream.mjpg?token=secret") as response:
+            self.assertTrue(response.headers["Content-Type"].startswith("multipart/x-mixed-replace"))
+            self.assertEqual(response.readline(), b"--frame\r\n")
+            self.assertEqual(response.readline(), b"Content-Type: image/jpeg\r\n")
+            length = int(response.readline().split(b":")[1])
+            response.readline()
+            jpeg = response.read(length)
+        self.assertEqual(cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape, (20, 30, 3))
+
+    def test_record_marks_cached_and_pending_labels(self):
+        record = runner.dashboard_record({"seq": 10, "image_size": [1, 1], "tracks": [
+            {"track_id": 0, "label": "phone", "labelled_frame": 3, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}},
+            {"track_id": 1, "label": None, "labelled_frame": None, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}},
+        ]})
+        self.assertEqual([t["label_source"] for t in record["tracks"]], ["track_cache", None])
+        self.assertIsNone(record["tracks"][0]["proposal"]["confidence"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DEVICES, lookup } from "./devices.js";
-import { FRAME_HEIGHT, FRAME_WIDTH, subscribe } from "./feed.js";
+import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import DeviceModel from "./components/DeviceModels.jsx";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
@@ -11,6 +11,14 @@ const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   </svg>
 );
 
+const STATUS_TEXT = {
+  mock: "Mock feed",
+  connecting: "Connecting to relay…",
+  live: "Live · glasses relay",
+  error: "Relay unreachable, retrying…",
+  paused: "Paused",
+};
+
 function formatClock(seconds) {
   const s = Math.max(0, Math.floor(seconds));
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -19,20 +27,91 @@ function formatClock(seconds) {
   return `${hh}:${mm}:${ss}`;
 }
 
+// A real device label: not still pending and not Gemini's "none" (not a target device).
+const isDeviceLabel = (label) => Boolean(label) && label !== "none";
+
 // The device the dashboard describes: the most confident labelled track.
 function primaryTrack(frame) {
-  const labelled = (frame?.tracks || []).filter((t) => t.gemini_label);
+  const labelled = (frame?.tracks || []).filter((t) => isDeviceLabel(t.gemini_label));
   labelled.sort((a, b) => (b.proposal?.confidence ?? 0) - (a.proposal?.confidence ?? 0));
   return labelled[0] || null;
 }
 
-function RecordingPanel({ frame, elapsed, paused, onTogglePause }) {
+// Size of the area the frame is drawn into, so boxes line up with the letterboxed video.
+function useElementSize() {
+  const ref = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setSize({ width, height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, size];
+}
+
+function RelayForm({ relay, onConnect, onClose }) {
+  const [url, setUrl] = useState(relay?.url || "http://localhost:8765");
+  const [token, setToken] = useState(relay?.token || "");
+  return (
+    <form
+      className="relay-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (url.trim() && token.trim()) onConnect({ url: url.trim().replace(/\/+$/, ""), token: token.trim() });
+      }}
+    >
+      <div className="relay-title">Connect glasses relay</div>
+      <label>
+        Relay address
+        <input className="mono" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://localhost:8765" />
+      </label>
+      <label>
+        Token
+        <input className="mono" value={token} onChange={(e) => setToken(e.target.value)} placeholder="printed by live_runner" />
+      </label>
+      <div className="relay-actions">
+        <button type="submit" className="text-btn primary">Connect</button>
+        {relay && (
+          <button type="button" className="text-btn" onClick={() => onConnect(null)}>Use mock feed</button>
+        )}
+        <button type="button" className="text-btn" onClick={onClose}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
   const tracks = frame?.tracks || [];
+  const [frameH, frameW] = frame?.image_size_hw_pixels || DEFAULT_SIZE_HW;
+  const [screenRef, screen] = useElementSize();
+  const [formOpen, setFormOpen] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const src = paused ? null : videoUrl(relay);
+
+  useEffect(() => setVideoFailed(false), [src]);
+
+  // Fit the frame inside the screen area, keeping its aspect ratio.
+  const scale = Math.min(screen.width / frameW, screen.height / frameH) || 0;
+  const stage = {
+    width: frameW * scale,
+    height: frameH * scale,
+    left: (screen.width - frameW * scale) / 2,
+    top: (screen.height - frameH * scale) / 2,
+  };
+  const showVideo = Boolean(src) && !videoFailed;
+
   return (
     <section className="panel recording">
       <div className="panel-head">
         <h2>Meta Recording</h2>
-        <span className="mono muted">Ocular Feed · {FRAME_WIDTH}×{FRAME_HEIGHT}</span>
+        <span className="mono muted">
+          {STATUS_TEXT[status]} · {frameW}×{frameH}
+        </span>
       </div>
       <div className="viewport">
         <div className="rec-badge mono">
@@ -42,39 +121,67 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause }) {
         <span className="rivet" style={{ top: 10, right: 10 }} />
         <span className="rivet" style={{ bottom: 74, right: 10 }} />
 
-        <div className="feed-placeholder">
-          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
-            <circle cx="7" cy="13" r="4" />
-            <circle cx="17" cy="13" r="4" />
-            <path d="M11 13h2M3 13H2M22 13h-1M5 9l2-4M19 9l-2-4" />
-          </svg>
-          Meta glasses video feed
+        <div className="screen" ref={screenRef}>
+          {!showVideo && (
+            <div className="feed-placeholder">
+              <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+                <circle cx="7" cy="13" r="4" />
+                <circle cx="17" cy="13" r="4" />
+                <path d="M11 13h2M3 13H2M22 13h-1M5 9l2-4M19 9l-2-4" />
+              </svg>
+              {paused
+                ? "Paused"
+                : !relay
+                  ? "Meta glasses video feed (mock detections)"
+                  : videoFailed
+                    ? "No video from the relay yet"
+                    : "Waiting for glasses video…"}
+            </div>
+          )}
+
+          <div className="stage" style={stage}>
+            {showVideo && (
+              <img className="video" src={src} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+            )}
+
+            {/* Detection boxes, scaled from frame pixels to the drawn frame */}
+            <div className="overlay" aria-hidden="true">
+              {tracks.map((t) => {
+                const [x1, y1, x2, y2] = t.proposal?.box_xyxy_pixels || [0, 0, 0, 0];
+                const label = t.gemini_label;
+                const name = !label ? "Identifying…" : label === "none" ? "Not a target" : lookup(label).label;
+                return (
+                  <div
+                    key={t.track_id}
+                    className={`det-box ${isDeviceLabel(label) ? "" : "pending"}`}
+                    style={{
+                      left: `${(x1 / frameW) * 100}%`,
+                      top: `${(y1 / frameH) * 100}%`,
+                      width: `${((x2 - x1) / frameW) * 100}%`,
+                      height: `${((y2 - y1) / frameH) * 100}%`,
+                    }}
+                  >
+                    <span className="det-label mono">
+                      #{t.track_id} {name}
+                      {t.proposal?.confidence != null && ` · ${Math.round(t.proposal.confidence * 100)}%`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        {/* Detection boxes, scaled from frame pixels to the viewport */}
-        <div className="overlay" aria-hidden="true">
-          {tracks.map((t) => {
-            const [x1, y1, x2, y2] = t.proposal?.box_xyxy_pixels || [0, 0, 0, 0];
-            const name = t.gemini_label ? lookup(t.gemini_label).label : "Identifying…";
-            return (
-              <div
-                key={t.track_id}
-                className={`det-box ${t.gemini_label ? "" : "pending"}`}
-                style={{
-                  left: `${(x1 / FRAME_WIDTH) * 100}%`,
-                  top: `${(y1 / FRAME_HEIGHT) * 100}%`,
-                  width: `${((x2 - x1) / FRAME_WIDTH) * 100}%`,
-                  height: `${((y2 - y1) / FRAME_HEIGHT) * 100}%`,
-                }}
-              >
-                <span className="det-label mono">
-                  #{t.track_id} {name}
-                  {t.proposal?.confidence != null && ` · ${Math.round(t.proposal.confidence * 100)}%`}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+        {formOpen && (
+          <RelayForm
+            relay={relay}
+            onConnect={(next) => {
+              onRelayChange(next);
+              setFormOpen(false);
+            }}
+            onClose={() => setFormOpen(false)}
+          />
+        )}
 
         <div className="transport">
           <button type="button" className="round-btn" aria-label={paused ? "Resume feed" : "Pause feed"} onClick={onTogglePause}>
@@ -88,6 +195,9 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause }) {
           <div className="mono muted">
             {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </div>
+          <button type="button" className="text-btn relay-btn" onClick={() => setFormOpen((o) => !o)}>
+            {relay ? "Relay settings" : "Connect relay"}
+          </button>
         </div>
       </div>
     </section>
@@ -208,20 +318,28 @@ function AssayPanel({ device }) {
 }
 
 export default function App() {
+  const [relay, setRelay] = useState(initialRelay);
   const [frame, setFrame] = useState(null);
+  const [status, setStatus] = useState(relay ? "connecting" : "mock");
   const [paused, setPaused] = useState(false);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (paused) return undefined;
-    return subscribe(setFrame);
-  }, [paused]);
+    setFrame(null);
+    return subscribe(relay, setFrame, setStatus);
+  }, [paused, relay]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const changeRelay = (next) => {
+    saveRelay(next);
+    setRelay(next);
+  };
 
   const track = useMemo(() => primaryTrack(frame), [frame]);
   const activeId = track?.gemini_label ?? null;
@@ -233,7 +351,15 @@ export default function App() {
       <h1 className="visually-hidden">ScavScrap scan dashboard</h1>
 
       <div className="row top">
-        <RecordingPanel frame={frame} elapsed={(now - startedAt) / 1000} paused={paused} onTogglePause={() => setPaused((p) => !p)} />
+        <RecordingPanel
+          frame={frame}
+          elapsed={(now - startedAt) / 1000}
+          paused={paused}
+          onTogglePause={() => setPaused((p) => !p)}
+          relay={relay}
+          status={paused ? "paused" : status}
+          onRelayChange={changeRelay}
+        />
         <ModelPanel id={known ? activeId : null} device={device} />
         <MeasurementsPanel device={device} />
       </div>

@@ -26,23 +26,42 @@ Per-device data (dimensions, weight, metal content) lives in
 `src/devices.js`. **All numbers there are placeholders** for layout work and
 must be replaced with sourced values.
 
-## Data feed
+## Live glasses feed
 
-The dashboard reads frames shaped like the JSONL records that
-`recognition/live_runner.py` writes: `frame_index`, `timestamp` and a
-`tracks` list where each track has `track_id`,
-`proposal.box_xyxy_pixels`, `proposal.confidence`, `gemini_label` and
-`label_source`. It shows the most confident labelled track.
+The dashboard shows the Meta glasses video and live detection boxes from the
+glasses relay (`recognition/live_runner.py --listen`, see `app/ios/README.md`).
 
-- **Default: mock feed.** `src/feed.js` cycles through all five devices,
-  10 seconds each, so every screen can be tested without a model.
-- **Real feed:** set `VITE_FEED_URL` to a WebSocket that sends one frame
-  JSON per message, for example `VITE_FEED_URL=ws://localhost:8765 npm run dev`.
-  The backend does not serve this WebSocket yet; `live_runner.py` would need a
-  small sender added.
+1. Start the relay on the laptop as in `app/ios/README.md` ("Run"). Besides the
+   token it prints a ready-made dashboard link:
 
-The dashboard always follows the feed: it shows whichever device the most
-confident labelled track is.
+   ```text
+   relay listening on 0.0.0.0:8765; token 3f9c...
+   dashboard: open http://localhost:5173/?relay=http://localhost:8765&token=3f9c...
+   ```
+
+2. Run `npm run dev` here and open that link. The token is saved in this
+   browser and removed from the address bar.
+3. Start streaming from the ScavRelay app. Video appears as soon as frames
+   arrive; boxes follow each finished detection.
+
+The relay prints a new token every run, so open the new link (or use
+**Relay settings** in the recording panel) after restarting it.
+
+The relay serves two read-only endpoints, both needing `?token=`:
+
+- `/stream.mjpg`: newest glasses frame as MJPEG (no boxes drawn)
+- `/events`: Server-Sent Events, one record per finished detection:
+  `frame_index`, `timestamp`, `image_size_hw_pixels` and `tracks`, each with
+  `track_id`, `proposal.box_xyxy_pixels`, `proposal.confidence`,
+  `gemini_label` (null while labelling, `none` for a non-target) and
+  `label_source`
+
+The dashboard shows the most confident labelled track. The confidence shown
+is the box proposal's, not Gemini's (Gemini returns none).
+
+Without a relay, a mock feed cycles through all five devices, 10 seconds
+each, so every screen can be tested. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN`
+set a default relay at build time.
 
 ## Structure
 
@@ -50,12 +69,10 @@ confident labelled track is.
 src/
   App.jsx                    layout and panels
   devices.js                 per-label device data (placeholders)
-  feed.js                    mock feed + WebSocket feed
+  feed.js                    relay connection (video + detections) and mock feed
   components/DeviceModels.jsx  rotating CSS 3D models, one per device
   styles.css                 theme tokens and styles
 ```
 
 The 3D models use CSS 3D transforms, so there are no model files or WebGL
 dependency. They can later be swapped for three.js with real `.glb` models.
-
-The recording panel is a placeholder: no video stream is connected yet.

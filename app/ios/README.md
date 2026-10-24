@@ -70,6 +70,10 @@ Boxes appear on the phone, and new lines land in
 The laptop opens a "scavscrap relay" window showing the newest glasses frame with
 the last finished boxes; press `q` in it to stop. Add `--no-display` to run headless.
 
+To watch the stream in the dashboard instead, run `npm run dev` in `frontend/`
+and open the `dashboard: open http://localhost:5173/?relay=...` link the relay
+prints at startup. See `frontend/README.md`.
+
 ## Troubleshooting
 
 - **Stuck on `waitingForDevice`:** the glasses are out of range, Developer Mode
