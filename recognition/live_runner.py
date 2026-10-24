@@ -425,7 +425,8 @@ def main() -> None:
     try:
         if args.listen:
             host, _, port = args.listen.rpartition(":")
-            serve_relay(host, int(port), secrets.token_urlsafe(16), detect)
+            # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
+            serve_relay(host, int(port), secrets.token_hex(16), detect)
         elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)

@@ -45,14 +45,45 @@ final class GlassesController: ObservableObject {
           return
         }
       }
+      // The device list fills in asynchronously; creating a session before it does throws noEligibleDevice.
+      let selector = AutoDeviceSelector(wearables: Wearables.shared)
+      // shortcut: polls instead of racing activeDeviceStream() against a timer; fine for a 10 s one-off wait.
+      for _ in 0..<20 where selector.activeDevice == nil {
+        status = "Waiting for glasses..."
+        try await Task.sleep(for: .milliseconds(500))
+      }
+      guard selector.activeDevice != nil else {
+        let known = Wearables.shared.devices.count
+        status = known == 0
+          ? "No glasses known to Meta AI: check pairing and Developer Mode"
+          : "\(known) glasses known but none connected: open the arms, wear them, check Bluetooth"
+        return
+      }
       // A stopped session cannot restart; always open a new one.
-      let session = try Wearables.shared.createSession(deviceSelector: AutoDeviceSelector(wearables: Wearables.shared))
+      let session = try Wearables.shared.createSession(deviceSelector: selector)
       self.session = session
+      // Subscribe before start() so early errors and states are not missed.
+      let errors = session.errorStream()
+      let states = session.stateStream()
+      var sessionError: String?
+      Task {
+        for await error in errors {
+          sessionError = error.description
+          status = "Glasses session error: \(error.description)"
+          // Meta AI owns the glasses-app update screen; there is no fixed menu path to send the user to.
+          if error == .datAppOnTheGlassesUpdateRequired {
+            try? await Wearables.shared.openDATGlassesAppUpdate()
+          }
+        }
+      }
       try session.start()
-      for await state in session.stateStream() {
+      var seen: [String] = []
+      for await state in states {
+        seen.append(String(describing: state))
         if state == .started { break }
         if state == .stopped {
-          status = "Glasses session stopped before it started"
+          stop()
+          status = "Glasses session stopped before it started (\(seen.joined(separator: " → "))): \(sessionError ?? "no error reported")"
           return
         }
       }
@@ -67,6 +98,8 @@ final class GlassesController: ObservableObject {
       camera.stream.start()
       status = ""
     } catch {
+      // Leftover sessions make the next Start fail with sessionAlreadyExists.
+      stop()
       status = error.localizedDescription
     }
   }
@@ -81,7 +114,7 @@ final class GlassesController: ObservableObject {
   }
 
   // Subscribe before start() so no transition is missed.
-  private func observe(_ stream: Stream) {
+  private func observe(_ stream: MWDATCamera.Stream) {
     stream.statePublisher.listen { [weak self] state in
       // paused keeps the last frame on screen; a tap on the glasses resumes.
       Task { @MainActor in self?.streamState = String(describing: state) }

@@ -7,8 +7,11 @@ runs on the laptop; the phone only relays frames and draws the returned boxes.
 Boxes trail the newest frame by one inference. Relay or network failures show
 as a red banner, never as detections.
 
-Status: these sources have not been compiled yet. They were written against
-DAT SDK 1.0.x docs and Meta's BirdSpotter sample, on a machine without Xcode.
+Status: these sources built and launched in an iPhone 17 Pro simulator with
+Xcode 26.6 and the existing DAT SDK 1.0.1 package. On 2026-10-24 a physical
+iPhone 15 Plus streamed Meta glasses frames to the laptop relay, which wrote
+records. If Start reports that the glasses app needs an update, ScavRelay opens
+Meta AI's update screen; re-enable Developer Mode after updating.
 
 ## Requirements
 

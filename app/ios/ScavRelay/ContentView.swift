@@ -9,7 +9,7 @@ struct ContentView: View {
   @State private var token = Keychain.read() ?? ""
 
   var body: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: 0) {
       Form {
         Section("Laptop relay") {
           TextField("192.168.1.20:8765", text: $host)
@@ -37,7 +37,7 @@ struct ContentView: View {
           }
         }
       }
-      .frame(maxHeight: 340)
+      .frame(height: 470)
 
       if !glasses.status.isEmpty {
         Banner(text: glasses.status)
@@ -46,11 +46,20 @@ struct ContentView: View {
         // Failures are never shown as detections.
         Banner(text: relayError)
       }
-      if let frame = glasses.frame {
-        FrameOverlay(image: frame, result: glasses.result)
+      ZStack {
+        Color(red: 0.05, green: 0.10, blue: 0.11)
+        if let frame = glasses.frame {
+          FrameOverlay(image: frame, result: glasses.result)
+        } else {
+          Label("Camera feed appears when streaming", systemImage: "viewfinder")
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(0.7))
+        }
       }
-      Spacer(minLength: 0)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Color(red: 0.05, green: 0.10, blue: 0.11).ignoresSafeArea())
   }
 }
 

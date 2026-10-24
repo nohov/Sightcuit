@@ -25,8 +25,9 @@ final class RelayClient {
   private var inFlight = false
 
   func configure(host: String, token: String) {
-    endpoint = URL(string: "http://\(host)/frame")
-    self.token = token
+    // Pasting a whole terminal line into the hidden token field brings a trailing newline.
+    endpoint = URL(string: "http://\(host.trimmingCharacters(in: .whitespacesAndNewlines))/frame")
+    self.token = token.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   /// Drops the frame when the previous one is still in flight; the laptop only wants the newest frame anyway.
