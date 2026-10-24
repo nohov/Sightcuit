@@ -18,9 +18,9 @@ A = (30, 20, 150, 100)
 B = (200, 100, 290, 190)
 
 
-def row(box, confidence=0.9):
+def row(box, confidence=0.9, name="speaker"):
     x1, y1, x2, y2 = box
-    return {"name": "speaker", "class": 4, "confidence": confidence,
+    return {"name": name, "class": CONFIG["expected_builtin_classes"].index(name), "confidence": confidence,
             "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}}
 
 
@@ -53,13 +53,14 @@ class FakeTransport:
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
-def run(summaries, transport, min_call_interval=0.0, times=None):
-    frames = [np.zeros((200, 300, 3), dtype=np.uint8) for _ in summaries]
+def run(summaries, transport, min_call_interval=0.0, times=None, size=(200, 300), min_box_side=0.0):
+    frames = [np.zeros((*size, 3), dtype=np.uint8) for _ in summaries]
     clock = iter(times or range(0, 1000)).__next__
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "live.jsonl"
         runner.run_live(frames, output, FakePredictor(summaries), CONFIG, "test-model", "unit test",
-                        transport=transport, min_call_interval=min_call_interval, clock=clock)
+                        transport=transport, min_call_interval=min_call_interval, clock=clock,
+                        min_box_side=min_box_side)
         return [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
 
 
@@ -91,9 +92,10 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertEqual(records[1]["suppressed_duplicate_proposals"][0]["box_xyxy_pixels"],
                          [34.0, 66.0, 223.0, 192.0])
 
-    def test_part_boxes_inside_device_are_suppressed_and_keep_its_track(self):
-        # Real one-laptop webcam run scaled by 0.4: a small "tower" box inside the laptop, then a
-        # screen-only box (IoU 0.54 with the full laptop box) that previously stole the laptop's track.
+    def test_large_part_box_is_suppressed_and_small_box_inside_gets_own_track(self):
+        # Real one-laptop webcam run scaled by 0.4: a small "tower" box inside the laptop (6% of its area,
+        # phone-sized, so Gemini judges it), then a screen-only box (54% of the area, IoU 0.54) that once
+        # stole the laptop's track.
         transport = FakeTransport()
         records = run([
             [row((0, 76, 194, 192), 0.64)],
@@ -101,9 +103,27 @@ class LiveRunnerTests(unittest.TestCase):
             [row((0, 0, 256, 192), 0.25), row((0, 0, 155, 172), 0.13)],
             [row((7, 34, 192, 160), 0.47)],
         ], transport)
-        self.assertEqual(len(transport.calls), 1)
-        self.assertEqual([[d["track_id"] for d in r["detections"]] for r in records], [[0], [0], [0], [0]])
-        self.assertEqual([len(r["suppressed_duplicate_proposals"]) for r in records], [0, 1, 1, 0])
+        self.assertEqual([[d["track_id"] for d in r["detections"]] for r in records], [[0], [0, 1], [0], [0]])
+        self.assertEqual([len(r["suppressed_duplicate_proposals"]) for r in records], [0, 0, 1, 0])
+
+    def test_phone_lying_on_laptop_gets_its_own_track(self):
+        # Real glasses frame: YOLO-World named both boxes "laptop"; the phone box is 9% of the laptop's area.
+        laptop, phone = (123, 371, 504, 770), (391, 381, 504, 500)
+        transport = FakeTransport()
+        records = run([[row(laptop, name="laptop")], [row(laptop, name="laptop"), row(phone, 0.55, "laptop")]],
+                      transport, size=(896, 504))
+        self.assertEqual([d["track_id"] for d in records[1]["detections"]], [0, 1])
+        self.assertEqual(records[1]["suppressed_duplicate_proposals"], [])
+        self.assertEqual(len(transport.calls[1]), 1)
+
+    def test_boxes_under_min_side_are_recorded_but_never_tracked_or_sent(self):
+        # Real false "smartwatch" box from a glasses frame: 21 px wide.
+        transport = FakeTransport()
+        records = run([[row((271, 334, 292, 373), 0.44, "smartwatch")]], transport, size=(896, 504),
+                      min_box_side=runner.DEFAULT_MIN_BOX_SIDE)
+        self.assertEqual(transport.calls, [])
+        self.assertEqual(records[0]["detections"], [])
+        self.assertEqual(records[0]["too_small_proposals"][0]["box_xyxy_pixels"], [271.0, 334.0, 292.0, 373.0])
 
     def test_lost_track_is_evicted_and_relabelled(self):
         transport = FakeTransport()

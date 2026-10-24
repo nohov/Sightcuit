@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import re
 import secrets
 import threading
 import time
@@ -33,13 +34,17 @@ from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize
 
 # shortcut: greedy IoU matching with no motion model; switch to Ultralytics ByteTrack if the owner installs `lap`.
 TRACK_IOU = 0.3
-# A new box this close to, or mostly inside, a box already matched this frame is YOLO re-boxing the same
-# device or a part of it (a screen, a corner), not a new device.
-# shortcut: also hides a small device fully inside a bigger one's box (phone lying on a laptop);
-# replace with per-class reasoning if multi-device scenes matter.
+# A new box this close to a box already matched this frame, or mostly inside a same-class one and at least
+# PART_MIN_AREA of its size, is YOLO re-boxing that device or a large part of it (a screen). Smaller boxes
+# inside it get their own track and a Gemini label: on real glasses frames YOLO-World called a phone lying
+# on a laptop "laptop", at 4-10% of the laptop box's area.
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
+PART_MIN_AREA = 0.2
 MAX_MISSED = 15
+# On 504x896 glasses frames, boxes under 32 px on their short side were mostly false smartwatches that Gemini
+# confirmed anyway (5 of 8), and only 2 of 216 phone hits; too few pixels to judge.
+DEFAULT_MIN_BOX_SIDE = 32.0
 DEFAULT_MIN_CALL_INTERVAL = 2.0
 
 
@@ -57,9 +62,12 @@ def box_iou(a: list[float], b: list[float]) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def is_duplicate(box: list[float], other: list[float]) -> bool:
-    return (box_iou(box, other) >= DUPLICATE_IOU
-            or intersection(box, other) >= CONTAINED_FRACTION * box_area(box))
+def is_duplicate(proposal: dict[str, Any], other: dict[str, Any]) -> bool:
+    box, other_box = proposal["box_xyxy_pixels"], other["box_xyxy_pixels"]
+    return (box_iou(box, other_box) >= DUPLICATE_IOU
+            or (proposal["raw_class_name"] == other["raw_class_name"]
+                and intersection(box, other_box) >= CONTAINED_FRACTION * box_area(box)
+                and box_area(box) >= PART_MIN_AREA * box_area(other_box)))
 
 
 class TrackCache:
@@ -81,7 +89,7 @@ class TrackCache:
             if best is not None and box_iou(box, self.tracks[best]["proposal"]["box_xyxy_pixels"]) >= TRACK_IOU:
                 unmatched.discard(best)
                 track = self.tracks[best]
-            elif any(is_duplicate(box, t["proposal"]["box_xyxy_pixels"]) for t in current):
+            elif any(is_duplicate(proposal, t["proposal"]) for t in current):
                 suppressed.append(proposal)
                 continue
             else:
@@ -112,10 +120,13 @@ def run_live(
     clock: Callable[[], float] = time.monotonic,
     show: Callable[[Any, list[dict[str, Any]]], bool] | None = None,
     thinking_level: str | None = None,
+    min_box_side: float = DEFAULT_MIN_BOX_SIDE,
 ) -> None:
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
         raise ValueError("confidence and IoU thresholds must be between 0 and 1")
+    if min_box_side < 0:
+        raise ValueError("minimum box side must not be negative")
     template = (HERE / "prompt-cascade-v2.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
@@ -126,6 +137,7 @@ def run_live(
             started = time.perf_counter()
             tracks: list[dict[str, Any]] = []
             suppressed: list[dict[str, Any]] = []
+            too_small: list[dict[str, Any]] = []
             api_called = False
             response: dict[str, Any] = {}
             raw_response = None
@@ -137,7 +149,10 @@ def run_live(
                 result = predictor.predict(frame, proposal_confidence, iou, device, agnostic_nms=True)
                 if tuple(result["image_size"]) != size:
                     raise ValueError("YOLO and camera frame disagree on image size")
-                proposals = normalize_summary(result["raw_summary"], size, proposal_confidence, config)
+                proposals = []
+                for proposal in normalize_summary(result["raw_summary"], size, proposal_confidence, config):
+                    x1, y1, x2, y2 = proposal["box_xyxy_pixels"]
+                    (too_small if min(x2 - x1, y2 - y1) < min_box_side else proposals).append(proposal)
                 tracks, suppressed = cache.update(sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS])
                 pending = [track for track in tracks if track["label"] is None]
                 # Only unlabelled tracks go to Gemini; cached labels cost no API call.
@@ -186,12 +201,13 @@ def run_live(
                 "device": device,
                 "hardware": {"system": platform.system(), "machine": platform.machine()},
                 "command": command,
-                "thresholds": {"confidence": proposal_confidence, "iou": iou},
+                "thresholds": {"confidence": proposal_confidence, "iou": iou, "min_box_side_pixels": min_box_side},
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                 "image_size_hw_pixels": image_size,
                 "box_format": "xyxy pixels: [left, top, right, bottom] in the original frame",
                 "raw_predictions": entries,
                 "suppressed_duplicate_proposals": suppressed,
+                "too_small_proposals": too_small,
                 "raw_response": raw_response,
                 "detections": [{
                     "track_id": entry["track_id"],
@@ -519,6 +535,8 @@ def main() -> None:
     parser.add_argument("--min-call-interval", type=float, default=DEFAULT_MIN_CALL_INTERVAL,
                         help="minimum seconds between Gemini calls")
     parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"))
+    parser.add_argument("--min-box-side", type=float, default=DEFAULT_MIN_BOX_SIDE,
+                        help="ignore proposals whose shorter side is under this many pixels")
     parser.add_argument("--no-display", action="store_true")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
@@ -526,6 +544,11 @@ def main() -> None:
         parser.error("--allow-upload is required: camera frames with new tracks are sent to Google")
     if not os.environ.get("GEMINI_API_KEY"):
         parser.error("GEMINI_API_KEY must be set in the environment")
+    # A fixed token keeps the phone app and dashboard connected across relay restarts.
+    # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
+    token = os.environ.get("SCAVSCRAP_RELAY_TOKEN") or secrets.token_hex(16)
+    if not re.fullmatch(r"[0-9a-f]{32,}", token):
+        parser.error("SCAVSCRAP_RELAY_TOKEN must be at least 32 lowercase hex characters")
 
     config = load_config(args.config)
     command = start_logging(args.output, args.log)
@@ -536,13 +559,13 @@ def main() -> None:
             frames, args.output, predictor, config, args.model, command,
             args.proposal_confidence, args.iou, args.device, args.timeout,
             min_call_interval=args.min_call_interval, show=show, thinking_level=args.thinking_level,
+            min_box_side=args.min_box_side,
         )
 
     try:
         if args.listen:
             host, _, port = args.listen.rpartition(":")
-            # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
-            serve_relay(host, int(port), secrets.token_hex(16), detect, display=not args.no_display)
+            serve_relay(host, int(port), token, detect, display=not args.no_display)
         elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)

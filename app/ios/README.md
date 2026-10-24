@@ -47,7 +47,10 @@ set -a; . ./.env; set +a
   --allow-upload --listen 0.0.0.0:8765
 ```
 
-It prints `relay listening on 0.0.0.0:8765; token ...`. Find the laptop's Wi-Fi
+It prints `relay listening on 0.0.0.0:8765; token ...`. The token is random
+each run unless `.env` sets `SCAVSCRAP_RELAY_TOKEN` (32+ lowercase hex
+characters, e.g. from `openssl rand -hex 16`); a fixed token keeps the phone and
+dashboard connected across relay restarts. Find the laptop's Wi-Fi
 address (`ip addr` on Linux, `ipconfig getifaddr en0` on macOS), then check the
 relay before involving the phone. It should print the tracks as JSON:
 
