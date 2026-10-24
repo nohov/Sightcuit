@@ -78,6 +78,22 @@ set -a; . ./.env; set +a   # loads GEMINI_API_KEY without printing it
 Defaults: `--config recognition/yolo_world_l_model.json`,
 `--model gemini-3.5-flash-lite`, `--proposal-confidence 0.1`.
 
+Live camera (cascade + track cache): YOLO-World runs on every frame, boxes are
+matched to in-memory tracks by IoU, and Gemini labels only tracks with no cached
+label (at most one call per `--min-call-interval`, default 2 s). Frames with new
+tracks are uploaded to Google, so `--allow-upload` is required. Press `q` to quit:
+
+```sh
+set -a; . ./.env; set +a
+.venv/bin/python -m recognition.live_runner \
+  evaluation/live_predictions.jsonl \
+  --weights /absolute/path/to/yolov8l-worldv2.pt \
+  --allow-upload --camera 0
+```
+
+Each JSONL line is one frame; `label_source` is `gemini` on the labelling frame
+and `track_cache` afterwards. Cached labels are not fresh per-frame inference.
+
 Whole-image Gemini runs send every image to Google. Set the key in the shell
 only, then smoke-test three images before the full manifest:
 

@@ -157,7 +157,7 @@ class UltralyticsPredictor:
     def predict(self, image_path: Path, confidence: float, iou: float, device: str,
                 agnostic_nms: bool = False) -> dict[str, Any]:
         results = self.model.predict(
-            source=str(image_path),
+            source=str(image_path) if isinstance(image_path, Path) else image_path,
             conf=confidence,
             iou=iou,
             device=device,
