@@ -525,10 +525,31 @@ def gemini_name(track: dict[str, Any]) -> str | None:
     return None if track.get("label") in (None, "none") else track["label"]
 
 
+# Generic names ("smartphone") get their category's text instead of a Gemini call; only brand + family names
+# are described. Keys are project classes (labels/classes.json); other classes use the fallback.
+UNBRANDED_DESCRIPTIONS = {
+    "laptop": "A laptop is a portable computer with a screen and keyboard joined by a hinge. Laptops became common "
+              "in the 1990s and are used for work, school and entertainment away from a desk.",
+    "phone": "A smartphone is a pocket computer that also makes calls. Since the late 2000s, touchscreen phones "
+             "have become the main way many people message, browse, take photos and navigate.",
+    "headphones": "Headphones are a pair of small speakers worn over or on the ears, joined by a headband. "
+                  "People use them to listen to music, calls and games without disturbing others.",
+    "smartwatch": "A smartwatch is a wrist-worn computer with a touch display. Smartwatches spread in the 2010s "
+                  "and are used to see notifications, track exercise and tell the time.",
+    "speaker": "A speaker turns electrical signals into sound. Standalone speakers range from small Bluetooth "
+               "units to bookshelf and smart speakers, used for music, calls and voice assistants.",
+}
+UNBRANDED_FALLBACK = "No brand is visible on this device yet. Move closer or show the logo side for a description."
+
+
 def describe_tracks(tracks: list[dict[str, Any]], narrator: Narrator) -> None:
-    """Start a description for each Gemini-named track and attach it once written (None until then)."""
+    """Start a description for each branded track and attach it once written (None until then)."""
     for track in tracks:
         name = gemini_name(track)
+        if name and not track.get("identified"):
+            track["description"] = UNBRANDED_DESCRIPTIONS.get(track["proposal"].get("project_class"),
+                                                              UNBRANDED_FALLBACK)
+            continue
         if name:
             narrator.prepare(name)
         track["description"] = name and narrator.description(name)

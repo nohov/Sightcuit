@@ -12,6 +12,7 @@ import urllib.request
 import cv2
 import numpy as np
 
+from labels import TARGET_CLASSES
 from recognition import live_runner as runner
 from recognition import yolo_runner
 
@@ -419,12 +420,18 @@ class RelayServerTests(unittest.TestCase):
             def prepare(self, label): self.prepared.append(label)
             def description(self, label): return "A phone." if label == "Apple iPhone" else None
 
-        tracks = [{"track_id": i, "label": label, "labelled_frame": 1, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}}
-                  for i, label in enumerate(["Apple iPhone", "JBL speaker", "none", None])]
+        tracks = [{"track_id": i, "label": label, "identified": identified, "labelled_frame": 1,
+                   "proposal": {"box_xyxy_pixels": [0, 0, 1, 1], "project_class": project_class}}
+                  for i, (label, identified, project_class) in enumerate([
+                      ("Apple iPhone", True, "phone"), ("JBL speaker", True, "speaker"), ("smartphone", False, "phone"),
+                      ("keyboard", False, None), ("none", False, "phone"), (None, False, "phone")])]
         runner.describe_tracks(tracks, FakeNarrator())
-        self.assertEqual(FakeNarrator.prepared, ["Apple iPhone", "JBL speaker"])
+        self.assertEqual(FakeNarrator.prepared, ["Apple iPhone", "JBL speaker"])  # no call for "smartphone"
         record = runner.dashboard_record({"seq": 2, "image_size": [1, 1], "tracks": tracks})
-        self.assertEqual([t["description"] for t in record["tracks"]], ["A phone.", None, None, None])
+        self.assertEqual([t["description"] for t in record["tracks"]],
+                         ["A phone.", None, runner.UNBRANDED_DESCRIPTIONS["phone"], runner.UNBRANDED_FALLBACK,
+                          None, None])
+        self.assertEqual(set(runner.UNBRANDED_DESCRIPTIONS), set(TARGET_CLASSES))
 
     def test_stream_sends_the_newest_relayed_frame_as_jpeg(self):
         self.shown["frame"] = np.zeros((20, 30, 3), dtype=np.uint8)
