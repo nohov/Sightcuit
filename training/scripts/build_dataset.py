@@ -239,13 +239,22 @@ def roboflow(zip_path, *mappings):
                     continue
                 if (xywh := yolo_row_xywh(list(map(float, parts[1:])))) and (b := to_yolo(*xywh, 1, 1)):
                     boxes.append((mapping[meta["names"][int(parts[0])]], b))
-            stem = f"rf_{project}_{Path(n).stem}"
+            stem = short_stem(f"rf_{project}_{Path(n).stem}")
             if write_labels(stem, boxes):
                 with zf.open(n) as f:
                     Image.open(f).convert("RGB").save(OUT / "images" / f"{stem}.jpg", quality=95)
                 counts.update(c for c, _ in boxes)
                 n_imgs += 1
     print(f"roboflow {project}: {n_imgs} images, boxes:", dict(counts))
+
+
+def short_stem(stem, limit=100):
+    """Windows paths cap at 260 chars. Keeps the part before '.rf.' (the split group key) stable."""
+    if len(stem) <= limit:
+        return stem
+    base, _, rest = stem.partition(".rf.")
+    base = f"{base[:limit - 40]}-{hashlib.sha1(base.encode()).hexdigest()[:10]}"
+    return f"{base}.rf.{rest[:16]}" if rest else base
 
 
 def yolo_row_xywh(coords):
@@ -303,6 +312,10 @@ def selftest():
     assert r4(yolo_row_xywh([0.5, 0.5, 0.2, 0.4])) == (0.4, 0.3, 0.2, 0.4)
     assert r4(yolo_row_xywh([0.1, 0.2, 0.5, 0.2, 0.5, 0.6, 0.1, 0.6])) == (0.1, 0.2, 0.4, 0.4)
     assert yolo_row_xywh([0.1, 0.2, 0.3]) is None
+    long_a, long_b = "rf_x_" + "a" * 150 + ".rf." + "1" * 32, "rf_x_" + "a" * 150 + ".rf." + "2" * 32
+    sa, sb = short_stem(long_a), short_stem(long_b)
+    assert len(sa) <= 100 and sa != sb and sa.split(".rf.")[0] == sb.split(".rf.")[0]
+    assert short_stem("rf_x_short.rf.abc") == "rf_x_short.rf.abc"
     meta = yaml_names("names: ['DESKTOP PC', \"Monitors\"]\nroboflow:\n  project: desk-pc\n")
     assert meta == {"names": ["DESKTOP PC", "Monitors"], "project": "desk-pc"}
     assert is_val("oi_abc") == is_val("oi_abc")
