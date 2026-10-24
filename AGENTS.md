@@ -12,7 +12,8 @@ Do not train or fine-tune models, install dependencies, download weights, start
 cloud jobs, collect a large dataset, read credentials, or change global
 configuration. The owner-approved exceptions for the bake-off are:
 
-- Gemini API calls through `recognition/gemini_runner.py`, using
+- Gemini API calls through `recognition/gemini_runner.py` and
+  `recognition/cascade_runner.py`, using
   `GEMINI_API_KEY` from the environment only. Never write the key to files,
   logs, commands, or records. Send only images whose
   `permission_provenance_notes` permit upload to Google.

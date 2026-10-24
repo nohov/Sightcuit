@@ -17,7 +17,7 @@
     "model_identifier": {"type": "string", "minLength": 1},
     "weights_filename": {"type": "string", "minLength": 1},
     "weights_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-    "runtime": {"enum": ["ultralytics", "gemini-api"]},
+    "runtime": {"enum": ["ultralytics", "gemini-api", "ultralytics+gemini-api"]},
     "runtime_version": {"type": ["string", "null"]},
     "model_version": {"type": ["string", "null"]},
     "prompt_version": {"type": "string"},
@@ -46,6 +46,7 @@
     },
     "box_format": {"const": "xyxy pixels: [left, top, right, bottom] in the original image"},
     "raw_predictions": {"type": ["array", "string", "null"]},
+    "raw_response": {"type": ["string", "null"]},
     "detections": {
       "type": "array",
       "items": {

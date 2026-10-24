@@ -154,12 +154,14 @@ class UltralyticsPredictor:
         if actual_classes != config["expected_builtin_classes"]:
             raise RuntimeError("local weights class list does not match the frozen configuration")
 
-    def predict(self, image_path: Path, confidence: float, iou: float, device: str) -> dict[str, Any]:
+    def predict(self, image_path: Path, confidence: float, iou: float, device: str,
+                agnostic_nms: bool = False) -> dict[str, Any]:
         results = self.model.predict(
             source=str(image_path),
             conf=confidence,
             iou=iou,
             device=device,
+            agnostic_nms=agnostic_nms,
             save=False,
             verbose=False,
         )

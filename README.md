@@ -63,8 +63,11 @@ can otherwise download missing weights automatically.
 ## Gemini vs YOLO bake-off
 
 COCO covers only one of the five classes, so the model decision is a bake-off
-of three detection runs on the same box-annotated photos:
+of detection runs on the same box-annotated photos:
 
+- **Cascade, the primary candidate** (`python3 -m recognition.cascade_runner`):
+  local YOLO-World proposes boxes, then one Gemini call per image labels each
+  box as a target class or `none`. Images with no proposals make no API call.
 - **Gemini** (`python3 -m recognition.gemini_runner`): cloud API, all five
   classes from the prompt, boxes but no confidence. Needs `GEMINI_API_KEY` and
   upload-permitted images.
@@ -80,10 +83,11 @@ rule. See `RUNBOOK.md` steps 5–6.
 
 ```sh
 python3 -m unittest recognition.tests.test_yolo_runner recognition.tests.test_vlm_runner \
-  recognition.tests.test_gemini_runner evaluation.tests.test_score \
-  evaluation.tests.test_score_detection tests.test_integration -v
+  recognition.tests.test_gemini_runner recognition.tests.test_cascade_runner \
+  evaluation.tests.test_score evaluation.tests.test_score_detection tests.test_integration -v
 python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py \
-  recognition/gemini_runner.py evaluation/score.py evaluation/score_detection.py
+  recognition/gemini_runner.py recognition/cascade_runner.py \
+  evaluation/score.py evaluation/score_detection.py
 python3 recognition/yolo_runner.py --help
 ```
 

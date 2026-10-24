@@ -25,7 +25,7 @@ from recognition.yolo_runner import TARGET_CLASSES, manifest_entries
 
 
 PROMPT_VERSION = "gemini-detect-v1"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 API_VERSION = "v1beta"
 ENDPOINT = "https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent"
 HERE = Path(__file__).resolve().parent
@@ -89,8 +89,9 @@ def read_image(path: Path) -> tuple[bytes, str, tuple[int, int]]:
     return path.read_bytes(), mime, (height, width)
 
 
-def build_payload(image_bytes: bytes, mime: str, prompt: str) -> dict[str, Any]:
-    return {
+def build_payload(image_bytes: bytes, mime: str, prompt: str, thinking_level: str | None = None,
+                  response_schema: dict[str, Any] = RESPONSE_SCHEMA) -> dict[str, Any]:
+    payload = {
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": mime, "data": base64.b64encode(image_bytes).decode("ascii")}},
@@ -100,9 +101,12 @@ def build_payload(image_bytes: bytes, mime: str, prompt: str) -> dict[str, Any]:
         "generationConfig": {
             "temperature": 0,
             "responseMimeType": "application/json",
-            "responseSchema": RESPONSE_SCHEMA,
+            "responseSchema": response_schema,
         },
     }
+    if thinking_level:
+        payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
+    return payload
 
 
 def response_text(response: dict[str, Any]) -> str:
@@ -155,6 +159,7 @@ def run_manifest(
     command: str,
     timeout: float = 120.0,
     transport: Transport = gemini_transport,
+    thinking_level: str | None = None,
 ) -> None:
     manifest, output = manifest.resolve(), output.resolve()
     if manifest == output:
@@ -177,7 +182,7 @@ def run_manifest(
                 try:
                     image_bytes, mime, size = read_image(manifest.parent / row["path"])
                     image_size = list(size)
-                    response = transport(build_payload(image_bytes, mime, prompt), model, timeout)
+                    response = transport(build_payload(image_bytes, mime, prompt, thinking_level), model, timeout)
                     raw = response_text(response)
                     detections = normalize_response(json.loads(raw), size)
                     logging.info("Detection completed image_id=%s detections=%d", row["image_id"], len(detections))
@@ -189,7 +194,10 @@ def run_manifest(
                     "schema_version": "1.0.0",
                     "image_id": row["image_id"],
                     "task": "object_detection",
-                    "model_identifier": f"Gemini {model} via generateContent ({PROMPT_VERSION})",
+                    "model_identifier": (
+                        f"Gemini {model} via generateContent ({PROMPT_VERSION}, "
+                        f"thinking={thinking_level or 'model default'})"
+                    ),
                     "weights_filename": model,
                     "weights_sha256": None,
                     "runtime": "gemini-api",
@@ -221,6 +229,8 @@ def main() -> None:
     parser.add_argument("output", type=Path, help="detection JSONL output")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
     parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"),
+                        help="omit for the model default; allowed levels vary by model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     if not os.environ.get("GEMINI_API_KEY"):
@@ -231,7 +241,8 @@ def main() -> None:
     logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     command = shlex.join([sys.executable, *sys.argv])
     logging.info("Starting command: %s", command)
-    run_manifest(args.manifest, args.output, args.model, command, args.timeout)
+    run_manifest(args.manifest, args.output, args.model, command, args.timeout,
+                 thinking_level=args.thinking_level)
 
 
 if __name__ == "__main__":

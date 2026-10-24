@@ -58,6 +58,12 @@ class GeminiRunnerTests(unittest.TestCase):
             "mapping_status": "mapped",
         }])
 
+    def test_thinking_level_is_sent_only_when_requested(self):
+        default = runner.build_payload(b"x", "image/png", "prompt")
+        low = runner.build_payload(b"x", "image/png", "prompt", "low")
+        self.assertNotIn("thinkingConfig", default["generationConfig"])
+        self.assertEqual(low["generationConfig"]["thinkingConfig"], {"thinkingLevel": "low"})
+
     def test_invalid_responses_are_rejected(self):
         cases = (
             {"not": "a list"},

@@ -64,15 +64,29 @@ python3 recognition/yolo_runner.py \
   --device cpu
 ```
 
-Gemini sends each image to Google. Set the key in the shell only, then smoke-test
-three images before the full manifest:
+The primary candidate, the cascade, needs both the YOLO-World L weights and the
+Gemini key. It sends an image to Google only when YOLO proposes at least one box:
+
+```sh
+set -a; . ./.env; set +a   # loads GEMINI_API_KEY without printing it
+.venv/bin/python -m recognition.cascade_runner \
+  evaluation/manifest.csv \
+  evaluation/cascade_predictions.jsonl \
+  --weights /absolute/path/to/yolov8l-worldv2.pt
+```
+
+Defaults: `--config recognition/yolo_world_l_model.json`,
+`--model gemini-3.5-flash-lite`, `--proposal-confidence 0.1`.
+
+Whole-image Gemini runs send every image to Google. Set the key in the shell
+only, then smoke-test three images before the full manifest:
 
 ```sh
 export GEMINI_API_KEY=...   # never commit or log
 python3 -m recognition.gemini_runner \
   evaluation/manifest.csv \
   evaluation/gemini_predictions.jsonl \
-  --model gemini-2.5-flash
+  --model gemini-3.8-flash
 ```
 
 ## 6. Score only after box annotations exist
@@ -82,6 +96,7 @@ every run together:
 
 ```sh
 python3 -m evaluation.score_detection evaluation/manifest.csv \
+  evaluation/cascade_predictions.jsonl \
   evaluation/gemini_predictions.jsonl \
   evaluation/yolo_world_predictions.jsonl \
   evaluation/yolo_predictions.jsonl \
@@ -96,8 +111,9 @@ VLM scorer only.
 
 ```sh
 python3 -m unittest recognition.tests.test_yolo_runner recognition.tests.test_vlm_runner \
-  recognition.tests.test_gemini_runner evaluation.tests.test_score \
-  evaluation.tests.test_score_detection tests.test_integration -v
+  recognition.tests.test_gemini_runner recognition.tests.test_cascade_runner \
+  evaluation.tests.test_score evaluation.tests.test_score_detection tests.test_integration -v
 python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py \
-  recognition/gemini_runner.py evaluation/score.py evaluation/score_detection.py
+  recognition/gemini_runner.py recognition/cascade_runner.py \
+  evaluation/score.py evaluation/score_detection.py
 ```
