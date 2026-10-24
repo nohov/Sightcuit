@@ -3,7 +3,10 @@ from concurrent.futures import Future
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 
 import cv2
 import numpy as np
@@ -19,7 +22,7 @@ B = (200, 100, 290, 190)
 
 def row(box, confidence=0.9):
     x1, y1, x2, y2 = box
-    return {"name": "printer", "class": 3, "confidence": confidence,
+    return {"name": "speaker", "class": 4, "confidence": confidence,
             "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}}
 
 
@@ -36,7 +39,7 @@ class FakePredictor:
 
 
 class FakeTransport:
-    """Labels every region it is sent as printer and remembers each prompt's region lines."""
+    """Labels every region it is sent as speaker and remembers each prompt's region lines."""
 
     def __init__(self, fail_first=False, label="printer", identified=True, hint="ok"):
         self.calls = []
@@ -278,6 +281,89 @@ class LatestFrameTests(unittest.TestCase):
         self.assertEqual(next(frames), "new")
         latest.stop()
         self.assertEqual(list(frames), [])
+
+
+class RelayServerTests(unittest.TestCase):
+    """Mocked HTTP relay checks; no model inference runs."""
+
+    def setUp(self):
+        self.latest = runner.LatestFrame()
+        self.shown = {"tracks": [{"track_id": 0, "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0]},
+                                  "label": "speaker"}], "image_size": [200, 300]}
+        self.server = runner.make_relay_server(("127.0.0.1", 0), "secret", self.latest, self.shown, lambda: True)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def post(self, body, token="secret"):
+        request = urllib.request.Request(f"http://127.0.0.1:{self.server.server_address[1]}/frame", data=body,
+                                         headers={"Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    def test_wrong_token_is_rejected(self):
+        status, _ = self.post(b"x", token="wrong")
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.latest.frame)
+
+    def test_undecodable_body_is_rejected(self):
+        status, _ = self.post(b"not a jpeg")
+        self.assertEqual(status, 400)
+        self.assertIsNone(self.latest.frame)
+
+    def test_jpeg_reaches_detector_and_returns_last_tracks(self):
+        _, jpeg = cv2.imencode(".jpg", np.zeros((200, 300, 3), dtype=np.uint8))
+        status, body = self.post(jpeg.tobytes())
+        self.assertEqual(status, 200)
+        self.assertEqual(self.latest.frame.shape, (200, 300, 3))
+        self.assertIs(self.shown["frame"], self.latest.frame)
+        self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
+                                            "label": "speaker"}], "image_size_hw_pixels": [200, 300]})
+
+    def get(self, path):
+        return urllib.request.urlopen(f"http://127.0.0.1:{self.server.server_address[1]}{path}", timeout=5)
+
+    def test_dashboard_streams_need_the_token(self):
+        for path in ("/events?token=wrong", "/stream.mjpg"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(path)
+            self.assertEqual(caught.exception.code, 401)
+
+    def test_events_send_the_last_detection_as_a_dashboard_record(self):
+        self.shown.update(seq=3, tracks=[{"track_id": 4, "label": "laptop", "labelled_frame": 2,
+                                          "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "confidence": 0.5}}])
+        with self.get("/events?token=secret") as response:
+            self.assertEqual(response.headers["Content-Type"], "text/event-stream")
+            self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+            line = response.readline().decode()
+        record = json.loads(line.removeprefix("data: "))
+        self.assertEqual(record["frame_index"], 2)
+        self.assertEqual(record["image_size_hw_pixels"], [200, 300])
+        self.assertEqual(record["tracks"], [{"track_id": 4, "gemini_label": "laptop", "label_source": "gemini",
+                                             "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
+                                                          "confidence": 0.5}}])
+
+    def test_stream_sends_the_newest_relayed_frame_as_jpeg(self):
+        self.shown["frame"] = np.zeros((20, 30, 3), dtype=np.uint8)
+        with self.get("/stream.mjpg?token=secret") as response:
+            self.assertTrue(response.headers["Content-Type"].startswith("multipart/x-mixed-replace"))
+            self.assertEqual(response.readline(), b"--frame\r\n")
+            self.assertEqual(response.readline(), b"Content-Type: image/jpeg\r\n")
+            length = int(response.readline().split(b":")[1])
+            response.readline()
+            jpeg = response.read(length)
+        self.assertEqual(cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape, (20, 30, 3))
+
+    def test_record_marks_cached_and_pending_labels(self):
+        record = runner.dashboard_record({"seq": 10, "image_size": [1, 1], "tracks": [
+            {"track_id": 0, "label": "phone", "labelled_frame": 3, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}},
+            {"track_id": 1, "label": None, "labelled_frame": None, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}},
+        ]})
+        self.assertEqual([t["label_source"] for t in record["tracks"]], ["track_cache", None])
+        self.assertIsNone(record["tracks"][0]["proposal"]["confidence"])
 
 
 if __name__ == "__main__":

@@ -21,9 +21,10 @@ scores, so no threshold sweep or mAP is used for any run.
 
 | Run | Model / weights | Config or prompt | Weights SHA-256 or model_version | Date |
 | --- | --- | --- | --- | --- |
-| Gemini | | `prompt-gemini-v1.txt` | | |
+| Gemini 3.5 Flash-Lite | | `prompt-gemini-v2.txt` | | |
+| Cascade | `yolov8l-worldv2.pt` + Gemini | `yolo_world_l_model.json`, `prompt-cascade-v2.txt` | | |
 | YOLO-World | `yolov8s-worldv2.pt` | `yolo_world_model.json` | | |
-| YOLO11n COCO | `yolo11n.pt` | `yolo_model.json` | | |
+| YOLO26n COCO | `yolo26n.pt` | `yolo_model.json` | | |
 
 - Manifest and checksum:
 - Images per class / distractor images:
@@ -31,7 +32,7 @@ scores, so no threshold sweep or mAP is used for any run.
 
 ## Results
 
-Paste `python3 -m evaluation.score_detection` output here unchanged.
+Paste `python -m evaluation.score_detection` output here unchanged.
 
 ## Decision
 

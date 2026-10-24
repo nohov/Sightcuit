@@ -9,19 +9,17 @@ import logging
 import os
 from pathlib import Path
 import platform
-import shlex
-import sys
-import tempfile
 import time
 from typing import Any
 
 from recognition.gemini_runner import (
     API_VERSION, LABELS, Transport, build_payload, gemini_transport, read_image, response_text,
 )
+from recognition.runio import atomic_jsonl, start_logging
 from recognition.yolo_runner import UltralyticsPredictor, load_config, manifest_entries, normalize_summary
 
 
-PROMPT_VERSION = "cascade-v1"
+PROMPT_VERSION = "cascade-v2"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "yolo_world_l_model.json"
@@ -98,89 +96,81 @@ def run_manifest(
     if manifest == output:
         raise ValueError("manifest and output paths must differ")
     rows = manifest_entries(manifest)
-    template = (HERE / "prompt-cascade-v1.txt").read_text(encoding="utf-8")
+    template = (HERE / "prompt-cascade-v2.txt").read_text(encoding="utf-8")
     predictor = predictor or UltralyticsPredictor(weights, config)
-    output.parent.mkdir(parents=True, exist_ok=True)
 
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=output.parent, delete=False) as destination:
-            temporary_path = Path(destination.name)
-            for row in rows:
-                started = time.perf_counter()
-                image_size = None
-                raw: list[dict[str, Any]] = []
-                raw_response = None
-                response: dict[str, Any] = {}
-                detections: list[dict[str, Any]] = []
-                error = None
-                try:
-                    image_path = manifest.parent / row["path"]
-                    image_bytes, mime, size = read_image(image_path)
-                    image_size = list(size)
-                    result = predictor.predict(image_path, proposal_confidence, iou, device, agnostic_nms=True)
-                    if tuple(result["image_size"]) != size:
-                        raise ValueError("YOLO and Pillow disagree on image size")
-                    proposals = normalize_summary(result["raw_summary"], size, proposal_confidence, config)
-                    proposals = sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS]
-                    raw = [{"proposal": proposal, "gemini_label": None} for proposal in proposals]
-                    if proposals:  # empty scenes cost no API call
-                        prompt = template.replace("{regions}", region_text(proposals, size))
-                        response = transport(
-                            build_payload(image_bytes, mime, prompt, thinking_level, RESPONSE_SCHEMA),
-                            model, timeout,
-                        )
-                        raw_response = response_text(response)
-                        labels = parse_labels(json.loads(raw_response), len(proposals))
-                        for entry, label in zip(raw, labels):
-                            entry["gemini_label"] = label
-                        detections = [{
-                            "raw_class_id": LABELS.index(label),
-                            "raw_class_name": label,
-                            "confidence": None,
-                            "box_xyxy_pixels": entry["proposal"]["box_xyxy_pixels"],
-                            "project_class": label,
-                            "mapping_status": "mapped",
-                        } for entry, label in zip(raw, labels) if label != "none"]
-                    logging.info("Cascade completed image_id=%s proposals=%d detections=%d",
-                                 row["image_id"], len(raw), len(detections))
-                except Exception as exc:
-                    detections = []
-                    error = f"{type(exc).__name__}: {exc}"
-                    logging.exception("Cascade failed for image_id=%s", row["image_id"])
+    with atomic_jsonl(output) as write:
+        for row in rows:
+            started = time.perf_counter()
+            image_size = None
+            raw: list[dict[str, Any]] = []
+            raw_response = None
+            response: dict[str, Any] = {}
+            detections: list[dict[str, Any]] = []
+            error = None
+            try:
+                image_path = manifest.parent / row["path"]
+                image_bytes, mime, size = read_image(image_path)
+                image_size = list(size)
+                result = predictor.predict(image_path, proposal_confidence, iou, device, agnostic_nms=True)
+                if tuple(result["image_size"]) != size:
+                    raise ValueError("YOLO and Pillow disagree on image size")
+                proposals = normalize_summary(result["raw_summary"], size, proposal_confidence, config)
+                proposals = sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS]
+                raw = [{"proposal": proposal, "gemini_label": None} for proposal in proposals]
+                if proposals:  # empty scenes cost no API call
+                    prompt = template.replace("{regions}", region_text(proposals, size))
+                    response = transport(
+                        build_payload(image_bytes, mime, prompt, thinking_level, RESPONSE_SCHEMA),
+                        model, timeout,
+                    )
+                    raw_response = response_text(response)
+                    labels = parse_labels(json.loads(raw_response), len(proposals))
+                    for entry, label in zip(raw, labels):
+                        entry["gemini_label"] = label
+                    detections = [{
+                        "raw_class_id": LABELS.index(label),
+                        "raw_class_name": label,
+                        "confidence": None,
+                        "box_xyxy_pixels": entry["proposal"]["box_xyxy_pixels"],
+                        "project_class": label,
+                        "mapping_status": "mapped",
+                    } for entry, label in zip(raw, labels) if label != "none"]
+                logging.info("Cascade completed image_id=%s proposals=%d detections=%d",
+                             row["image_id"], len(raw), len(detections))
+            except Exception as exc:
+                detections = []
+                error = f"{type(exc).__name__}: {exc}"
+                logging.exception("Cascade failed for image_id=%s", row["image_id"])
 
-                record = {
-                    "schema_version": "1.0.0",
-                    "image_id": row["image_id"],
-                    "task": "object_detection",
-                    "model_identifier": (
-                        f"{config['model_identifier']} proposals -> Gemini {model} labels "
-                        f"({PROMPT_VERSION}, thinking={thinking_level or 'model default'})"
-                    ),
-                    "weights_filename": weights.name,
-                    "weights_sha256": getattr(predictor, "weights_sha256", None),
-                    "runtime": "ultralytics+gemini-api",
-                    "runtime_version": f"ultralytics {getattr(predictor, 'runtime_version', None)}; gemini {API_VERSION}",
-                    "model_version": response.get("modelVersion"),
-                    "prompt_version": PROMPT_VERSION,
-                    "usage": response.get("usageMetadata"),
-                    "device": device,
-                    "hardware": {"system": platform.system(), "machine": platform.machine()},
-                    "command": command,
-                    "thresholds": {"confidence": proposal_confidence, "iou": iou},
-                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
-                    "image_size_hw_pixels": image_size,
-                    "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
-                    "raw_predictions": raw,
-                    "raw_response": raw_response,
-                    "detections": detections,
-                    "error": error,
-                }
-                destination.write(json.dumps(record, separators=(",", ":")) + "\n")
-        os.replace(temporary_path, output)
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
+            record = {
+                "schema_version": "1.0.0",
+                "image_id": row["image_id"],
+                "task": "object_detection",
+                "model_identifier": (
+                    f"{config['model_identifier']} proposals -> Gemini {model} labels "
+                    f"({PROMPT_VERSION}, thinking={thinking_level or 'model default'})"
+                ),
+                "weights_filename": weights.name,
+                "weights_sha256": getattr(predictor, "weights_sha256", None),
+                "runtime": "ultralytics+gemini-api",
+                "runtime_version": f"ultralytics {getattr(predictor, 'runtime_version', None)}; gemini {API_VERSION}",
+                "model_version": response.get("modelVersion"),
+                "prompt_version": PROMPT_VERSION,
+                "usage": response.get("usageMetadata"),
+                "device": device,
+                "hardware": {"system": platform.system(), "machine": platform.machine()},
+                "command": command,
+                "thresholds": {"confidence": proposal_confidence, "iou": iou},
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "image_size_hw_pixels": image_size,
+                "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
+                "raw_predictions": raw,
+                "raw_response": raw_response,
+                "detections": detections,
+                "error": error,
+            }
+            write(record)
 
 
 def main() -> None:
@@ -201,11 +191,7 @@ def main() -> None:
         parser.error("GEMINI_API_KEY must be set in the environment")
 
     config = load_config(args.config)
-    log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    command = shlex.join([sys.executable, *sys.argv])
-    logging.info("Starting command: %s", command)
+    command = start_logging(args.output, args.log)
     run_manifest(
         args.manifest, args.output, args.weights, config, args.model, command,
         args.proposal_confidence, args.iou, args.device, args.timeout,

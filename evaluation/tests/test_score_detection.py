@@ -31,14 +31,14 @@ class DetectionScoreTests(unittest.TestCase):
     def test_run_scoring_with_errors_distractors_and_unsupported_classes(self):
         truth = {
             "a": [("laptop", [0, 0, 10, 10])],
-            "b": [("monitor", [0, 0, 10, 10])],
+            "b": [("phone", [0, 0, 10, 10])],
             "empty": [],
         }
         records = {
             "a": record("a", [det("laptop", [0, 0, 10, 10], 0.9)]),
             "b": record("b", [], error="RuntimeError: boom"),
             "empty": record("empty", [
-                det("printer", [0, 0, 5, 5]),
+                det("speaker", [0, 0, 5, 5]),
                 {"project_class": None, "mapping_status": "unsupported", "confidence": 0.9,
                  "box_xyxy_pixels": [0, 0, 5, 5]},
             ]),
@@ -46,8 +46,8 @@ class DetectionScoreTests(unittest.TestCase):
         result = scorer.score_run(truth, records)
 
         self.assertEqual(result["per_class"]["laptop"]["tp"], 1)
-        self.assertEqual(result["per_class"]["monitor"]["fn"], 1)
-        self.assertEqual(result["per_class"]["printer"]["fp"], 1)
+        self.assertEqual(result["per_class"]["phone"]["fn"], 1)
+        self.assertEqual(result["per_class"]["speaker"]["fp"], 1)
         self.assertEqual(result["errors"], 1)
         self.assertEqual(result["distractor_false_alarm_images"], 1)
         self.assertTrue(result["disqualified"])

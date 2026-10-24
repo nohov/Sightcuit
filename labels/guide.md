@@ -1,23 +1,22 @@
-# Object-detection labeling guide
+# Object-detection labelling guide
 
 ## Task rule
 
-Draw one rectangular box around every visible instance of a supported target
-class. Boxes use original-image pixel `xyxy` coordinates and cover the visible
-device extent as tightly as practical. They are object-detection boxes, not
-instance masks. A partially occluded device may be boxed when its class remains
-visually defensible; do not guess the hidden extent.
+Draw one rectangular box around every visible instance of a target class. Boxes
+use original-image pixel `xyxy` coordinates and cover the visible device as
+tightly as practical. They are detection boxes, not masks. A partly occluded
+device may be boxed when its class is still visually defensible; do not guess
+the hidden extent.
 
-The five target class IDs are `laptop`, `desktop_computer_tower`, `monitor`,
-`printer`, and `projector`. The scene-level review outcomes are `ambiguous`,
-`unsupported`, and `unreadable`; they are not detector classes. Do not create
-masks, parts, brands, exact models, internal-component labels, material estimates,
-or copper estimates.
+The five target classes are `laptop`, `phone`, `headphones`, `smartwatch` and
+`speaker`. The scene-level outcomes `ambiguous`, `unsupported` and `unreadable`
+are not detector classes. Do not label parts, brands, exact models, internal
+components or material estimates.
 
-Use `unreadable` when image quality prevents identification. Use `unsupported`
-when readable objects are outside the five classes. Use `ambiguous` when a
-candidate object is visible but its target class cannot be resolved. A clear
-image with no supported instances is a valid negative and has zero target boxes.
+Use `unreadable` when image quality prevents identification, `unsupported` when
+readable objects are outside the five classes, and `ambiguous` when a candidate
+object is visible but its class cannot be resolved. A clear image with no target
+devices is a valid negative with zero boxes.
 
 ## Target classes
 
@@ -27,145 +26,128 @@ Include:
 
 - Notebook computers with a visible, permanently attached hinged display and
   keyboard base.
-- Permanently hinged convertible laptops, whether shown in laptop, tent, or
-  tablet-folded mode, when the attached base is evident.
-- Open or closed laptops when the overall device form is recognizable.
+- Permanently hinged convertibles in laptop, tent or folded mode, when the
+  attached base is evident.
+- Open or closed laptops when the overall form is recognisable.
 
 Exclude:
 
-- Tablets, phones, handheld game systems, and e-readers.
-- Tablets paired with detachable or separate keyboard covers; label these
-  `unsupported` when clearly identifiable as tablets.
-- A detached laptop screen or keyboard alone.
+- Tablets, including tablets on detachable keyboard covers (`unsupported`).
+- Desktop monitors, all-in-one computers, e-readers and handheld game systems.
+- A detached laptop screen or keyboard on its own.
 
-Ambiguous cases:
+Ambiguous:
 
-- A tightly cropped screen that could belong to a laptop or monitor.
-- A closed thin device without enough ports, hinge, keyboard, or context to
-  distinguish a laptop from a tablet.
-- A two-in-one device whose keyboard attachment cannot be determined.
+- A closed thin slab without a visible hinge, ports or keyboard.
+- A two-in-one whose keyboard attachment cannot be determined.
 
-### `desktop_computer_tower`
+### `phone`
 
 Include:
 
-- Full, mid, mini, and small-form-factor desktop computer chassis.
-- Workstation or gaming PC chassis when they are standalone computers rather
-  than rack systems or external enclosures.
+- Smartphones, face up or face down, with or without a case.
+- Feature phones and flip phones, open or closed.
+- A phone held in a hand, when the device itself is visible.
 
 Exclude:
 
-- All-in-one computers, because the computer and display form one device.
-- Rack servers, network appliances, game consoles, UPS units, external drives,
-  eGPU enclosures, and empty cases that are clearly not functioning computers.
-- Loose motherboards or internal components.
+- Tablets and e-readers, judged by size against nearby objects.
+- Cordless and desk landline handsets.
+- Phone cases, chargers or power banks on their own.
 
-Ambiguous cases:
+Ambiguous:
 
-- An unlabeled black box lacking visible computer-specific structure.
-- A case that might be an empty chassis.
-- A compact computer hidden behind a monitor when it cannot be distinguished
-  from a dock or external drive.
+- A small slab with no scale cue that could be a phone or a small tablet.
+- A dark rectangle that could be a phone, a remote or a power bank.
 
-### `monitor`
+### `headphones`
 
 Include:
 
-- Standalone flat-panel or CRT displays intended primarily for computer or
-  external display use.
-- A monitor photographed without its stand when the complete display enclosure
-  is visible.
+- Over-ear and on-ear headphones with a headband joining two ear cups.
+- Gaming and office headsets, including ones with a boom microphone.
+- Headphones being worn, when the headband and ear cups are visible.
 
 Exclude:
 
-- Televisions that are clearly identifiable as televisions.
-- Laptop screens, tablet displays, projector screens, digital signs, and bare
-  display panels.
-- All-in-one computers that are clearly identifiable; use `unsupported` because
-  there is no all-in-one target class.
+- In-ear earbuds and their charging cases.
+- Ear defenders and hearing protection with no audio hardware.
+- Loose ear cushions or cables on their own.
 
-Ambiguous cases:
+Ambiguous:
 
-- A display with no visible controls, ports, stand, context, or metadata that
-  distinguishes a monitor from a television.
-- A display-shaped device that may be an all-in-one computer.
+- Folded headphones in a case where only part of the band shows.
+- Worn headphones mostly hidden by hair or a hood.
 
-### `printer`
+### `smartwatch`
 
 Include:
 
-- Inkjet, laser, thermal, label, receipt, photo, and dot-matrix printers.
-- Multifunction devices that can print as well as scan, copy, or fax.
-- Large-format printers when printing is their primary function.
+- Wrist-worn watches with a digital touch display, worn or lying flat.
+- Smartwatches on a charger, when the watch body is visible.
 
 Exclude:
 
-- Standalone scanners, copiers known not to print, fax-only machines, shredders,
-  laminators, and 3D printers.
-- Loose toner cartridges, ink cartridges, paper trays, and printer parts.
+- Analog watches and digital watches without a touch display.
+- Wall clocks, desk clocks and alarm clocks. COCO's `clock` is never a
+  smartwatch.
+- Screenless fitness bands and smart rings.
 
-Ambiguous cases:
+Ambiguous:
 
-- An office machine whose printing capability cannot be distinguished from a
-  scanner-only device.
-- A tightly cropped output slot or paper tray without the full device.
+- A watch face too small or blurred to show whether it is a touch display.
+- A band whose body is turned away from the camera.
 
-### `projector`
+### `speaker`
 
 Include:
 
-- Portable, classroom, conference-room, ceiling-mounted, short-throw, and
-  home-theater digital video or data projectors.
-- A projector seen from an unusual angle when its projection lens and enclosure
-  remain identifiable.
+- Portable Bluetooth speakers and smart speakers.
+- Bookshelf and desktop computer speakers.
+- A speaker grille and enclosure seen from an unusual angle, when still
+  identifiable.
 
 Exclude:
 
-- Cameras, webcams, security cameras, document cameras, camera lenses, projector
-  screens, stage lights, flashlights, and smart speakers.
-- Overhead transparency and slide projectors under the current digital-projector
-  definition.
+- Speakers built into another device, such as a laptop, TV, phone or monitor.
+- Microphones, routers, air purifiers and other cylinders without speaker
+  evidence.
+- Soundbars, large PA and stage speakers, and car audio. Mark these
+  `unsupported` until the owner decides otherwise.
 
-Ambiguous cases:
+Ambiguous:
 
-- A ceiling-mounted optical device without enough detail to distinguish a
-  projector from a camera or sensor.
-- A cropped lens and enclosure with no evidence of projection direction,
-  mounting, controls, or ventilation.
+- A fabric-covered cylinder that could be a smart speaker or an air freshener.
+- A box with no visible grille, driver or controls.
 
 ## Example decisions
 
-| Image content | Detection or scene decision | Reason |
+| Image content | Decision | Reason |
 | --- | --- | --- |
-| Open notebook with attached keyboard and screen | `laptop` | Recognizable hinged portable computer |
-| Tablet resting on a removable keyboard cover | `unsupported` | Tablet is outside the target classes |
-| Thin closed device that could be a tablet or laptop | `ambiguous` | Readable image, unresolved device type |
-| PC chassis beside a monitor | Box both supported devices | Detection labels every defensible target instance |
-| Clearly identifiable all-in-one computer | `unsupported` | All-in-one is not a tower or standalone monitor |
-| Standalone display at a desk with computer connections visible | `monitor` | Computer-display context resolves TV ambiguity |
-| Wall-mounted display with no distinguishing context | `ambiguous` | Monitor versus television cannot be resolved |
-| Multifunction printer-scanner with paper input and output | `printer` | Printing capability makes it a printer |
-| Flatbed scanner with no evidence of printing | `unsupported` | Scanner-only devices are outside scope |
-| Ceiling-mounted device with projection lens and ventilation | `projector` | Projection hardware is visually supported |
-| Ceiling-mounted optical device that could be a camera | `ambiguous` | Projector versus camera cannot be resolved |
-| Security camera with a visible camera mount | `unsupported` | Camera is identifiable and outside scope |
-| Two clearly identifiable target devices | Box both devices | Detection is not limited to one primary object |
-| Severe blur showing only an unidentifiable rectangular object | `unreadable` | Quality prevents reliable identification |
-| Empty room | `unsupported` | Readable image with no target device |
+| Open notebook with attached keyboard | `laptop` | Recognisable hinged portable computer |
+| Tablet on a removable keyboard cover | `unsupported` | Tablets are outside the classes |
+| Phone lying on a closed laptop | Box both | Detection labels every target instance |
+| Small slab with no scale cue | `ambiguous` | Phone versus small tablet unresolved |
+| Desk landline handset | `unsupported` | Landlines are excluded from `phone` |
+| Over-ear headphones on a stand | `headphones` | Headband joins both ear cups |
+| Earbuds in an open charging case | `unsupported` | Earbuds are excluded |
+| Smartwatch with a lit touch display, on a wrist | `smartwatch` | Wrist-worn digital touch display |
+| Analog wristwatch | `unsupported` | No digital touch display |
+| Wall clock | `unsupported` | A clock is not a smartwatch |
+| Portable Bluetooth speaker on a table | `speaker` | Standalone speaker enclosure |
+| Laptop with visible speaker grilles | `laptop` only | Built-in speakers are not `speaker` |
+| Severe blur, unidentifiable small object | `unreadable` | Quality prevents identification |
+| Empty desk | `unsupported` | Readable image, no target device |
 
-## Unresolved policy decisions
+## Open policy questions
 
-The current rules are usable, but the project owner should confirm these choices
-before locking evaluation labels:
+These defaults are usable, but the owner should confirm them before evaluation
+labels are locked:
 
-1. Whether detachable-keyboard tablets should remain `unsupported` or count as
-   laptops.
-2. Whether clearly identifiable all-in-one computers should remain `unsupported`
-   or be folded into `monitor`.
-3. Whether a television used as a computer display should count as `monitor`; the
-   current rule follows device type, not temporary use.
-4. Whether overhead transparency and slide projectors should join the digital
-   `projector` class.
+1. Should detachable-keyboard tablets count as `laptop`?
+2. Should screenless fitness bands count as `smartwatch`?
+3. Should soundbars and large PA speakers count as `speaker`?
+4. Should in-ear earbuds join `headphones`?
 
-Until those decisions change, apply the defaults in this guide consistently and
-record uncertainty as `ambiguous` rather than guessing.
+Until they change, apply these defaults consistently and record genuine
+uncertainty as `ambiguous` rather than guessing.
