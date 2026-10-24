@@ -40,13 +40,16 @@ from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize
 
 # shortcut: greedy IoU matching with no motion model; switch to Ultralytics ByteTrack if the owner installs `lap`.
 TRACK_IOU = 0.3
-# A new box this close to a box already matched this frame, or mostly inside a same-class one and at least
-# PART_MIN_AREA of its size, is YOLO re-boxing that device or a large part of it (a screen). Smaller boxes
-# inside it get their own track and a Gemini label: on real glasses frames YOLO-World called a phone lying
-# on a laptop "laptop", at 4-10% of the laptop box's area.
+# A new box this close to, or mostly inside, a box already matched this frame is YOLO re-boxing the same
+# device or a part of it (a screen, a corner), not a new device.
+# shortcut: also hides a small device fully inside a bigger one's box (phone lying on a laptop);
+# replace with per-class reasoning if multi-device scenes matter.
+# The trained detector also boxes a laptop's own keyboard and screen as "keyboard" and "monitor"; they are
+# checked against every live laptop track, including one missed for a few frames, before track matching, so a
+# flickering laptop box never detaches them (Gemini only answered them as "keyboard" or "none").
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
-PART_MIN_AREA = 0.2
+PART_CLASSES = {"laptop": {"keyboard", "monitor"}}
 # A track survives this many frames (~1.5 s at 30 fps) without a box; turning a phone over loses it for 1-2 s.
 MAX_MISSED = 45
 # A same-class box whose centre is within this many old-box diagonals continues the track even with little
@@ -104,18 +107,24 @@ def centre_distance(a: list[float], b: list[float]) -> float:
 
 
 def continues(proposal: dict[str, Any], old: dict[str, Any]) -> bool:
+    # Same class only: on glasses frames a phone box overlapping the laptop's took over its track and showed
+    # the cached "Apple MacBook" for 470 frames instead of getting its own label.
+    if proposal["raw_class_name"] != old["raw_class_name"]:
+        return False
     box, old_box = proposal["box_xyxy_pixels"], old["box_xyxy_pixels"]
-    return box_iou(box, old_box) >= TRACK_IOU or (
-        proposal["raw_class_name"] == old["raw_class_name"]
-        and centre_distance(box, old_box) <= TRACK_JUMP * math.dist(old_box[:2], old_box[2:]))
+    return (box_iou(box, old_box) >= TRACK_IOU
+            or centre_distance(box, old_box) <= TRACK_JUMP * math.dist(old_box[:2], old_box[2:]))
 
 
-def is_duplicate(proposal: dict[str, Any], other: dict[str, Any]) -> bool:
-    box, other_box = proposal["box_xyxy_pixels"], other["box_xyxy_pixels"]
-    return (box_iou(box, other_box) >= DUPLICATE_IOU
-            or (proposal["raw_class_name"] == other["raw_class_name"]
-                and intersection(box, other_box) >= CONTAINED_FRACTION * box_area(box)
-                and box_area(box) >= PART_MIN_AREA * box_area(other_box)))
+def is_duplicate(box: list[float], other: list[float]) -> bool:
+    return (box_iou(box, other) >= DUPLICATE_IOU
+            or intersection(box, other) >= CONTAINED_FRACTION * box_area(box))
+
+
+def is_part(proposal: dict[str, Any], host: dict[str, Any]) -> bool:
+    box = proposal["box_xyxy_pixels"]
+    return (proposal["raw_class_name"] in PART_CLASSES.get(host["raw_class_name"], ())
+            and intersection(box, host["box_xyxy_pixels"]) >= CONTAINED_FRACTION * box_area(box))
 
 
 @contextmanager
@@ -183,6 +192,9 @@ class TrackCache:
         suppressed = []
         for proposal in sorted(proposals, key=lambda p: -p["confidence"]):
             box = proposal["box_xyxy_pixels"]
+            if any(is_part(proposal, t["proposal"]) for t in self.tracks.values()):
+                suppressed.append(proposal)
+                continue
             candidates = [i for i in unmatched if continues(proposal, self.tracks[i]["proposal"])]
             best = max(candidates, default=None, key=lambda i: (
                 box_iou(box, self.tracks[i]["proposal"]["box_xyxy_pixels"]),
@@ -190,7 +202,7 @@ class TrackCache:
             if best is not None:
                 unmatched.discard(best)
                 track = self.tracks[best]
-            elif any(is_duplicate(proposal, t["proposal"]) for t in current):
+            elif any(is_duplicate(box, t["proposal"]["box_xyxy_pixels"]) for t in current):
                 suppressed.append(proposal)
                 continue
             else:
@@ -725,7 +737,9 @@ def main() -> None:
                         help="default: the config's confidence threshold (0.25 for the trained detector)")
     parser.add_argument("--iou", type=float)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--timeout", type=float, default=120.0)
+    # Only one Gemini call is in flight, so a hung call blocks every new label; 120 s froze labels for 2 min,
+    # while the slowest answered call took 21 s.
+    parser.add_argument("--timeout", type=float, default=30.0, help="seconds before a Gemini call is abandoned")
     parser.add_argument("--min-call-interval", type=float, default=DEFAULT_MIN_CALL_INTERVAL,
                         help="minimum seconds between Gemini calls")
     parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"), default="minimal",

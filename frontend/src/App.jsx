@@ -93,7 +93,8 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
   const [videoFailed, setVideoFailed] = useState(false);
   const src = paused ? null : videoUrl(relay);
 
-  // Remount the video whenever the feed (re)connects: an MJPEG <img> never retries after the relay restarts.
+  // Re-request the video whenever the feed (re)connects: an MJPEG <img> never retries after the relay restarts,
+  // and the browser reuses its cached image for an unchanged URL, so each attempt gets its own query value.
   const [videoAttempt, setVideoAttempt] = useState(0);
   useEffect(() => setVideoFailed(false), [src]);
   useEffect(() => {
@@ -148,7 +149,7 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
 
           <div className="stage" style={stage}>
             {showVideo && (
-              <img key={videoAttempt} className="video" src={src} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+              <img className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
 
             {/* Detection boxes, scaled from frame pixels to the drawn frame */}

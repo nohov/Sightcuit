@@ -121,9 +121,10 @@ environment. See [`RUNBOOK.md`](RUNBOOK.md).
 `python -m recognition.live_runner OUT.jsonl --weights W --allow-upload` runs
 the cascade on a webcam: YOLO-World boxes each frame, a greedy IoU tracker keeps
 tracks, and Gemini labels a track once and caches it. Records mark each label as
-`gemini` or `track_cache`. Re-boxes and part-of-device boxes (IoU ≥ 0.6, or ≥ 80%
-inside an already-matched box of the same YOLO class and ≥ 20% of its size) are
-suppressed rather than tracked, so a phone lying on a laptop still gets its own box. Boxes under 32 px on
+`gemini` or `track_cache`. Re-boxes and part-of-device boxes (IoU ≥ 0.6 or ≥ 80%
+inside an already-matched box) are suppressed rather than tracked, and a laptop's
+keyboard or screen stays attached to the laptop even when its box flickers. A
+track only continues with a box of the same detector class. Boxes under 32 px on
 their short side (`--min-box-side`) are recorded but never tracked or sent to Gemini.
 
 With `--listen 0.0.0.0:8765` it instead accepts JPEG frames POSTed to `/frame`
