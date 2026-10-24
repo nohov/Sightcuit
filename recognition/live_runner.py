@@ -525,6 +525,15 @@ def gemini_name(track: dict[str, Any]) -> str | None:
     return None if track.get("label") in (None, "none") else track["label"]
 
 
+def describe_tracks(tracks: list[dict[str, Any]], narrator: Narrator) -> None:
+    """Start a description for each Gemini-named track and attach it once written (None until then)."""
+    for track in tracks:
+        name = gemini_name(track)
+        if name:
+            narrator.prepare(name)
+        track["description"] = name and narrator.description(name)
+
+
 def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
     """The last finished detection, shaped like the frames the dashboard reads (see frontend/src/feed.js)."""
     frame_index = shown.get("seq", 0) - 1
@@ -540,6 +549,7 @@ def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
             },
             "gemini_label": project_label(track),
             "name": gemini_name(track),
+            "description": track.get("description"),
             "hint": track.get("hint"),
             "label_source": None if track.get("label") is None
             else "gemini" if track.get("labelled_frame") == frame_index else "track_cache",
@@ -647,7 +657,8 @@ def make_relay_server(
             shown["frame"] = frame  # newest received frame for the laptop preview
             self.reply(200, {
                 "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
-                            "label": project_label(t), "name": gemini_name(t)} for t in shown["tracks"]],
+                            "label": project_label(t), "name": gemini_name(t),
+                            "description": t.get("description")} for t in shown["tracks"]],
                 "image_size_hw_pixels": shown["image_size"],
             })
 
@@ -677,7 +688,7 @@ def show_relay_frames(shown: dict[str, Any], running: Callable[[], bool]) -> Non
 
 def serve_relay(
     host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
-    display: bool = False,
+    display: bool = False, narrator: Narrator | None = None,
 ) -> None:
     """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails."""
     latest = LatestFrame()
@@ -685,7 +696,10 @@ def serve_relay(
     failure: list[BaseException] = []
 
     def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
-        shown["tracks"] = [dict(track) for track in tracks]  # snapshot: the worker keeps mutating the cache
+        snapshot = [dict(track) for track in tracks]  # the worker keeps mutating the cache
+        if narrator:
+            describe_tracks(snapshot, narrator)
+        shown["tracks"] = snapshot
         shown["image_size"] = list(frame.shape[:2])
         shown["seq"] += 1  # one per finished detection; tells /events there is a new record
         return not latest.stopped
@@ -768,7 +782,9 @@ def main() -> None:
     predictor = UltralyticsPredictor(args.weights, config)
     cache = HERE.parent / "cache" / "narration" / DESCRIBE_VERSION
     audio = {}
-    if os.environ.get("ELEVENLABS_API_KEY"):
+    if args.listen:
+        pass  # descriptions go to the dashboard as text; nothing clicks to play audio here
+    elif os.environ.get("ELEVENLABS_API_KEY"):
         audio = {"speak": lambda text: elevenlabs_speak(text, args.voice_id, args.tts_model),
                  "audio_dir": cache / f"{args.voice_id}_{args.tts_model}"}
     else:
@@ -786,7 +802,7 @@ def main() -> None:
     try:
         if args.listen:
             host, _, port = args.listen.rpartition(":")
-            serve_relay(host, int(port), token, detect, display=not args.no_display)
+            serve_relay(host, int(port), token, detect, display=not args.no_display, narrator=narrator)
         elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)

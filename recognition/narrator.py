@@ -80,7 +80,7 @@ class Narrator:
     """A description per label, written once in the background and kept on disk, so repeat items and runs cost
     nothing. With speak and audio_dir it is also voiced; texts are shared across voices.
 
-    prepare() and click() are called only from the display thread; the worker only writes files.
+    prepare() and click() are called only from one thread (the display, or the relay's detector); the worker only writes files.
     """
 
     def __init__(self, text_dir: Path, describe: Callable[[str], str], speak: Callable[[str], bytes] | None = None,

@@ -132,7 +132,8 @@ class, so a moved item keeps its label.
 For Meta glasses, replace `--camera 0` with `--listen 0.0.0.0:8765`. Setup is in
 `app/ios/README.md`. The dashboard gets `gemini_label` as the project class
 (`laptop`, `phone`, ...) once Gemini confirms the item, plus `name` with
-Gemini's free-text name.
+Gemini's free-text name and `description` (the narrator's text, null until
+written; no audio in relay mode).
 
 ## Checks
 

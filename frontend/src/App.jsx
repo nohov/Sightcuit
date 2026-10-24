@@ -314,8 +314,12 @@ function ParticularsPanel({ device, track, known, activeId }) {
       <h2>Device Particulars</h2>
       <div className="device-name">{track?.name || (known ? device.label : waiting ? "Scanning…" : "Unrecognized device")}</div>
       <p className="device-desc">
-        {known
-          ? "[Short description of the scanned device: type, condition, visible components and anything notable for recovery.]"
+        {track?.description
+          ? track.description
+          : track?.name
+            ? "Writing a description…"
+          : known
+            ? "[Short description of the scanned device: type, condition, visible components and anything notable for recovery.]"
           : waiting
             ? "Waiting for the detector to label a device in view."
             : `The detector sent "${activeId}", which this dashboard has no entry for yet. Add it to src/devices.js to show its model and metal data.`}

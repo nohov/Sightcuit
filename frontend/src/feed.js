@@ -12,6 +12,7 @@
 //       "proposal": { "box_xyxy_pixels": [x1, y1, x2, y2], "confidence": 0.62 },
 //       "gemini_label": "phone",              // null while Gemini is still labelling, "none" if not a device
 //       "name": "Apple iPhone",               // Gemini's free-text brand/type, null while pending or "none"
+//       "description": "...",                 // 2-3 sentences from recognition/narrator.py, null until written
 //       "label_source": "gemini" | "track_cache" | null }
 //   ]
 // }

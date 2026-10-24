@@ -373,7 +373,7 @@ class RelayServerTests(unittest.TestCase):
         self.assertIs(self.shown["frame"], self.latest.frame)
         # The iOS app colours a box green only when label is a project class, so the class goes in label.
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
-                                            "label": "speaker", "name": "JBL speaker"}],
+                                            "label": "speaker", "name": "JBL speaker", "description": None}],
                                 "image_size_hw_pixels": [200, 300]})
 
     def get(self, path):
@@ -397,7 +397,7 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual(record["frame_index"], 2)
         self.assertEqual(record["image_size_hw_pixels"], [200, 300])
         self.assertEqual(record["tracks"], [{"track_id": 4, "gemini_label": "laptop", "name": "Apple MacBook",
-                                             "hint": None, "label_source": "gemini",
+                                             "description": None, "hint": None, "label_source": "gemini",
                                              "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
                                                           "confidence": 0.5}}])
 
@@ -412,6 +412,19 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual([(t["gemini_label"], t["name"]) for t in tracks],
                          [("phone", "smartphone"), ("Logitech keyboard", "Logitech keyboard"),
                           ("none", None), (None, None)])
+
+    def test_relay_tracks_get_descriptions_once_written(self):
+        class FakeNarrator:
+            prepared = []
+            def prepare(self, label): self.prepared.append(label)
+            def description(self, label): return "A phone." if label == "Apple iPhone" else None
+
+        tracks = [{"track_id": i, "label": label, "labelled_frame": 1, "proposal": {"box_xyxy_pixels": [0, 0, 1, 1]}}
+                  for i, label in enumerate(["Apple iPhone", "JBL speaker", "none", None])]
+        runner.describe_tracks(tracks, FakeNarrator())
+        self.assertEqual(FakeNarrator.prepared, ["Apple iPhone", "JBL speaker"])
+        record = runner.dashboard_record({"seq": 2, "image_size": [1, 1], "tracks": tracks})
+        self.assertEqual([t["description"] for t in record["tracks"]], ["A phone.", None, None, None])
 
     def test_stream_sends_the_newest_relayed_frame_as_jpeg(self):
         self.shown["frame"] = np.zeros((20, 30, 3), dtype=np.uint8)
