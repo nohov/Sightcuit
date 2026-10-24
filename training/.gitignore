@@ -1,0 +1,7 @@
+.venv/
+datasets/
+weights/
+runs/
+*.pt
+.fiftyone/
+*.log

@@ -1,134 +1,178 @@
-# Electronics Pokédex — recognition experiment design, v0.6
+# Electronics Pokédex — recognition pipeline design, v0.7
 
-The future product helps engineering students learn about electronics. The
-current milestone does not build that product. It determines, with recorded
-evidence, whether a hosted multimodal vision API can recognize five device
-families from a selected photo.
+The future product helps engineering students learn about electronics. A student
+photographs tech items; the app finds them, identifies what each one is, and
+shows its specs from cited web sources.
 
-## Sequence
+This milestone builds and evaluates the recognition pipeline. It does not build
+the app UI.
+
+## Pipeline
 
 ```text
-hosted vision API evaluation
-→ evidence-based provider and model decision
-→ application integration later
+photo
+→ stage 1: detect      (cheap hosted vision model, e.g. a Qwen-VL model)
+→ stage 2: identify    (stronger hosted vision model, e.g. Gemini)
+→ stage 3: specs       (stage-2 model with web search grounding)
+→ result per item
 ```
 
-No application may present a device as recognized until an actual model request
-has run and its response satisfies the fixed output contract. A model response
-is evidence to evaluate, not ground truth.
-
-## Fixed target contract
-
-1. `laptop`
-2. `desktop_computer_tower`
-3. `monitor`
-4. `printer`
-5. `projector`
-
-The model may also return `ambiguous`, `unsupported`, or `unreadable`. Exact
-manufacturer, model, internal parts, material content and value are outside this
-milestone.
-
-## Baseline
-
-The first baseline is one hosted multimodal vision API called through the
-backend. It receives one orientation-corrected, compressed photo and a frozen
-prompt containing the five class definitions. It must return JSON matching the
-versioned response schema.
-
-Keep the provider behind a small recognition adapter:
+Each stage sits behind a small adapter so its provider can change without
+touching the others:
 
 ```python
-recognize(image, allowed_classes) -> RecognitionResult
+detect(image) -> list[Detection]
+identify(image, detection) -> Identification
+lookup_specs(identification) -> SpecSheet
 ```
 
-The exact provider and model ID must be frozen before the first run and recorded
-with every prediction. Changing the provider, model, prompt, schema or image
-processing creates a new experiment version. API credentials remain on the
-backend and must never be included in logs or client code.
+No item may be presented as recognized until real model requests have run and
+every response satisfies its stage's output contract. Model output is evidence
+to evaluate, not ground truth.
 
-This baseline performs whole-image device-family recognition. It does not prove
-localization, detection, segmentation or continuous-video performance. If the
-photo contains several plausible primary devices, the correct response is
-`ambiguous` rather than an invented bounding box or arbitrary selection.
+## Stage 1: detect
 
-## Response contract
-
-Each successful response normalizes to:
+A cheap, fast hosted vision-language model receives one orientation-corrected,
+compressed photo and a frozen prompt. It returns every visible tech item:
 
 ```json
 {
-  "outcome": "laptop",
-  "evidence": "visible portable computer with attached display and keyboard"
+  "items": [
+    {"category": "laptop", "box": [0.12, 0.30, 0.58, 0.81], "evidence": "open clamshell with keyboard and display"}
+  ]
 }
 ```
 
-`outcome` must be one of the five classes or three abstention outcomes. Evidence
-is a short observable reason and must not contain unverified brand, model or
-internal-component claims. Invalid JSON, an unknown outcome, timeout, rate limit
-or provider error is a request failure; it must not be converted to
-`unsupported` or counted as a correct abstention.
+- `category` is one of the classes in `labels/classes.json`. The initial set is
+  `laptop`, `desktop_computer_tower`, `monitor`, `printer`, `projector`, plus
+  `other_electronics` for tech items outside that set. Adding a category is a
+  change to `labels/classes.json` and a new prompt version.
+- `box` is `[x1, y1, x2, y2]` normalized to 0–1. It is used to crop the item for
+  stage 2; it is approximate and not a precise localization claim.
+- An empty `items` list is a valid answer for a photo with no tech items.
+  `unreadable` is returned when the photo cannot be interpreted.
+
+## Stage 2: identify
+
+A stronger hosted vision model receives the crop, the full photo for context,
+and the stage-1 category. It identifies the item at product-line level:
+
+```json
+{
+  "level": "product_line",
+  "category": "laptop",
+  "brand": "Apple",
+  "product_line": "MacBook Air",
+  "evidence": "Apple logo on lid, thin wedge profile, no visible ports on front"
+}
+```
+
+`level` records how far identification got:
+
+- `product_line` — brand and product line (e.g. "Apple MacBook Air", "HP LaserJet")
+- `brand_only` — brand is clear, product line is not
+- `category_only` — only the category is supported by visible evidence
+
+Exact model, generation, year and SKU are out of scope. Many items in one
+product line look the same (e.g. MacBook Air generations), and guessing them
+would present invented precision. Evidence must cite visible features only.
+Stage 2 may correct the stage-1 category; both values are kept.
+
+## Stage 3: specs
+
+The stage-2 model, using its web search grounding tool, retrieves typical specs
+for the identified product line:
+
+```json
+{
+  "product_line": "Apple MacBook Air",
+  "specs": [
+    {"name": "display", "value": "13.3–15.3 in, ~2560×1600", "source": "https://..."}
+  ]
+}
+```
+
+- Every spec carries a source URL. A spec without a source is dropped.
+- Because the exact model is unknown, values describe the product line as
+  ranges or typical values, never as the exact unit's specs.
+- `brand_only` and `category_only` items get category-level educational info
+  only, not product specs.
+- Results are cached by product line so repeated items do not repeat lookups.
+
+## Failures versus abstentions
+
+Invalid JSON, an unknown category or level, timeout, rate limit or provider error
+is a request failure at that stage. It is recorded as a failure with an explicit
+error and is never converted to an empty detection, `category_only`, or a
+correct abstention. A stage-1 failure stops that photo; a stage-2 or stage-3
+failure stops only that item.
 
 ## Reproducibility contract
 
-Each prediction record preserves:
+Each record preserves, per stage:
 
-- image ID and SHA-256, without ground truth in the model request;
+- image ID and SHA-256, without ground truth in any model request;
 - provider, exact model ID, API and adapter versions;
 - prompt and response-schema versions;
-- image dimensions and preprocessing settings;
+- image dimensions, crop box and preprocessing settings;
 - request parameters that affect model behavior;
-- start time, elapsed time, provider request ID when returned, and explicit error;
-- normalized outcome and preserved raw response with secrets removed.
+- start time, elapsed time, token usage, provider request ID when returned, and
+  explicit error;
+- normalized output and raw response with secrets removed;
+- for stage 3, the search queries and source URLs returned by grounding.
 
-The runner writes predictions atomically and retains one record for every
-manifest row, including failures. Filenames provide file locations only and
-never determine predictions.
+Freeze provider, model ID, prompt and schema for each stage before a run.
+Changing any of them creates a new experiment version. The runner writes
+records atomically and keeps one record per manifest row, including failures.
+Filenames never determine predictions.
 
-## Evaluation inputs
+## Evaluation
 
-Use 10–20 permitted photos per target class and 20–30 confusing or unsupported
-examples only after collection is approved. Include multiple physical devices,
-viewpoints, lighting conditions, distances, occlusions, clutter and empty scenes.
-Group related images by physical device and capture session so they cannot leak
-between splits. Lock the final test manifest before model requests begin.
+Use 10–20 permitted photos per category, 20–30 photos with no tech items or
+confusing non-tech objects, and some multi-item scenes. Vary devices,
+viewpoints, lighting, distance, occlusion and clutter. Group images by physical
+device and capture session. Lock the test manifest before model requests begin.
 
-Report per-class precision and recall, the complete confusion matrix, abstention
-rate, unsupported-object false acceptance, request failures, and median and p95
-latency. Preserve representative errors and raw responses. Do not report boxes,
-masks or localization metrics for this whole-image API baseline.
+Report:
+
+- stage 1: per-category precision and recall, missed items, false detections on
+  non-tech photos, and whether each box contains its item;
+- stage 2: brand and product-line accuracy, the distribution of `level`, and
+  wrong product lines stated at `product_line` level (the worst error);
+- stage 3: share of specs with sources, and a manual spot check of at least 20
+  specs against their cited pages;
+- end to end: request failures per stage, median and p95 latency, and cost per
+  photo.
+
+Preserve representative errors and raw responses.
 
 ## Later comparisons
 
-YOLO remains a possible later detector when the product requires live boxes,
-tracking or offline inference. Its standard COCO weights directly support only
-`laptop` from this five-class map, so it is not the primary family-recognition
-baseline. Local Qwen3-VL through Ollama remains an unevaluated offline
-alternative. Neither is part of this hosted-API run.
+YOLO remains a possible stage-1 replacement if the app needs live video boxes,
+tracking or offline use; its COCO weights cover only `laptop` from the initial
+set, so it would need fine-tuning first. A local Qwen-VL through Ollama remains
+an offline alternative for stage 1.
 
 ## Privacy and cost controls
 
-- Tell participants that selected photos leave the application backend for the
-  configured vision provider.
-- Record the provider's retention and training-data terms before sending images.
-- Send selected device photos, not continuous video or unrelated frames.
+- Tell participants that photos are sent to the configured vision providers and
+  that item identities are sent to a web search tool.
+- Record each provider's retention and training-data terms before sending images.
+- Send selected photos only, not continuous video.
 - Remove images after evaluation according to the approved retention plan.
-- Set an experiment request limit and cost ceiling before enabling paid calls.
-- Retry only transient failures and cap retries so one image cannot spend without
-  bound.
+- Set a request limit and cost ceiling per stage before enabling paid calls.
+- Retry only transient failures, with a capped retry count.
+- API credentials stay on the backend, never in logs or client code.
 
 ## Stop conditions
 
-This specification change does not enable a paid service or authorize reading
-credentials. If an approved provider, model ID, credentials, request limit,
-retention terms or permitted images are absent, produce the adapter, schema,
-tests and blocker report, then stop before making a request. Do not install local
-model runtimes, download weights, train models, collect a large dataset or change
-global configuration for this milestone.
+If an approved provider, model ID, credentials, cost ceiling, retention terms or
+permitted images are missing for a stage, build that stage's adapter, schema,
+tests and a blocker report, then stop before making a request.
 
 ## Later application milestone
 
-Only after an evidence-based model decision may a separate application milestone
+After the evaluation supports a model choice per stage, a separate milestone may
 add photo capture, educational cards, corrections and saved collections. Its UI
-must distinguish model predictions, user corrections, abstentions and request
-failures without presenting guesses as verified recognition.
+must distinguish detections, identifications, sourced specs, user corrections and
+failures, and must never present a product-line guess as an exact model.
