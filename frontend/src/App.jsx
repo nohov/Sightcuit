@@ -161,9 +161,21 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
                       height: `${((y2 - y1) / frameH) * 100}%`,
                     }}
                   >
+                    {/* Brass caliper frame: riveted corner jaws and ruler ticks along the edges */}
+                    <span className="ruler top" />
+                    <span className="ruler bottom" />
+                    <span className="ruler left" />
+                    <span className="ruler right" />
+                    <span className="jaw tl" />
+                    <span className="jaw tr" />
+                    <span className="jaw bl" />
+                    <span className="jaw br" />
                     <span className="det-label mono">
+                      <span className="screw" />
+                      <Cog size={13} className={`cog tag-cog ${isDeviceLabel(label) ? "" : "fast"}`} />
                       #{t.track_id} {name}
                       {t.proposal?.confidence != null && ` · ${Math.round(t.proposal.confidence * 100)}%`}
+                      <span className="screw" />
                     </span>
                   </div>
                 );
