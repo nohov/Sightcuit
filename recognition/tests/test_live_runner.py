@@ -224,6 +224,20 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertEqual(labelled[:, :, 2].sum(), 0)
         self.assertGreater(labelled[:, :, 1].sum(), 0)
 
+    def test_click_picks_smallest_named_box(self):
+        def track(i, box, label):
+            return {"track_id": i, "label": label, "seen": runner.MIN_TRACK_FRAMES,
+                    "proposal": {"box_xyxy_pixels": box}}
+
+        laptop = track(0, [0, 0, 300, 200], "Apple MacBook")
+        phone = track(1, [100, 50, 150, 150], "Apple iPhone")
+        pending = track(2, [110, 60, 140, 140], None)
+        junk = track(3, [120, 70, 130, 130], "none")
+        tracks = [laptop, phone, pending, junk]
+        self.assertIs(runner.track_at(tracks, 125, 100), phone)
+        self.assertIs(runner.track_at(tracks, 20, 20), laptop)
+        self.assertIsNone(runner.track_at(tracks, 400, 20))
+
     def test_each_region_gets_a_full_resolution_close_up(self):
         transport = FakeTransport()
         run([[row(A), row(B, 0.8)]], transport)

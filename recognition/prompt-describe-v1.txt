@@ -1,0 +1,6 @@
+Write a short description of "{label}" to be read aloud to a student who is holding one and pointing a camera at it.
+
+- 2 or 3 sentences, under 60 words, plain text with no markdown, lists or emoji.
+- Cover what it is, a little of its history, and what people commonly use it for.
+- Talk about the product family as a whole, not one model: no model numbers, prices, specs or release dates that vary between models.
+- Use only well-established facts. If unsure of a detail, leave it out.

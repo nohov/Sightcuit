@@ -25,6 +25,9 @@ from recognition.cascade_runner import (
     DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, region_text,
 )
 from recognition.gemini_runner import API_VERSION, Transport, build_payload, gemini_transport, response_text
+from recognition.narrator import (
+    DEFAULT_TTS_MODEL, DEFAULT_VOICE, PROMPT_VERSION as DESCRIBE_VERSION, Narrator, elevenlabs_speak, gemini_describe,
+)
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
 
 
@@ -366,26 +369,44 @@ class LatestFrame:
             yield frame
 
 
-def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
+def visible(track: dict[str, Any]) -> bool:
+    # The detector calls toothpaste or a fork "phone" at up to 84%, so "none" and one-frame flickers stay hidden.
+    return track["label"] != "none" and track["seen"] >= MIN_TRACK_FRAMES
+
+
+def track_at(tracks: list[dict[str, Any]], x: float, y: float) -> dict[str, Any] | None:
+    """The smallest named box under a click, so a phone in front of a laptop wins over the laptop."""
+    hits = [t for t in tracks if visible(t) and t["label"] is not None
+            and t["proposal"]["box_xyxy_pixels"][0] <= x <= t["proposal"]["box_xyxy_pixels"][2]
+            and t["proposal"]["box_xyxy_pixels"][1] <= y <= t["proposal"]["box_xyxy_pixels"][3]]
+    return min(hits, key=lambda t: box_area(t["proposal"]["box_xyxy_pixels"]), default=None)
+
+
+def draw_tracks(frame: Any, tracks: list[dict[str, Any]], playable: Callable[[str], bool] = lambda label: False) -> None:
     """Detector class in yellow at once, Gemini's name in green when it lands; Gemini "none" hides the box."""
     for track in tracks:
-        # The detector calls toothpaste or a fork "phone" at up to 84%, so "none" and one-frame flickers stay hidden.
-        if track["label"] == "none" or track["seen"] < MIN_TRACK_FRAMES:
+        if not visible(track):
             continue
         if track["label"] is None:
             text, color = f"#{track['track_id']} {track['proposal']['raw_class_name']}...", (0, 220, 255)
         else:
             hint = f" - {track['hint']}" if track["hint"] else ""
-            text, color = f"#{track['track_id']} {track['label']}{hint}", (0, 200, 0)
+            play = " [play]" if playable(track["label"]) else ""
+            text, color = f"#{track['track_id']} {track['label']}{hint}{play}", (0, 200, 0)
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, text, (x1, max(y1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
-def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
+WINDOW = "scavscrap live (click a box to hear it, q quits)"
+
+
+def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
+                     narrator: Narrator | None = None) -> None:
     """Show every camera frame at camera speed while detection runs on the newest frame in a worker thread.
 
     Boxes are the last finished detection, so they trail a moving device by up to one inference.
+    With a narrator, every named box gets a spoken description made in the background; clicking it plays it.
     """
     latest = LatestFrame()
     shown: dict[str, list[dict[str, Any]]] = {"tracks": []}
@@ -401,6 +422,13 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
         except BaseException as exc:
             failure.append(exc)
 
+    def on_mouse(event: int, x: int, y: int, *_: Any) -> None:
+        if narrator and event == cv2.EVENT_LBUTTONDOWN and (track := track_at(shown["tracks"], x, y)):
+            logging.info("Click track=%d label=%r narration=%s", track["track_id"], track["label"],
+                         narrator.click(track["label"]))
+
+    cv2.namedWindow(WINDOW)
+    cv2.setMouseCallback(WINDOW, on_mouse)
     worker = threading.Thread(target=work, name="live-detector")
     with closing(camera_frames(camera)) as frames:
         worker.start()
@@ -409,8 +437,12 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
                 if not worker.is_alive():
                     break
                 latest.put(frame.copy())
-                draw_tracks(frame, shown["tracks"])
-                cv2.imshow("scavscrap live (q quits)", frame)
+                if narrator:
+                    for track in shown["tracks"]:
+                        if visible(track) and track["label"] is not None:
+                            narrator.prepare(track["label"])
+                draw_tracks(frame, shown["tracks"], narrator.ready if narrator else lambda label: False)
+                cv2.imshow(WINDOW, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
         finally:
@@ -440,6 +472,8 @@ def main() -> None:
     parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"), default="minimal",
                         help="minimal keeps live labels fast; higher levels took 4-28 s per call")
     parser.add_argument("--no-display", action="store_true")
+    parser.add_argument("--voice-id", default=DEFAULT_VOICE, help="ElevenLabs voice for spoken descriptions")
+    parser.add_argument("--tts-model", default=DEFAULT_TTS_MODEL, help="ElevenLabs text-to-speech model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     if not args.allow_upload:
@@ -456,6 +490,15 @@ def main() -> None:
     command = shlex.join([sys.executable, *sys.argv])
     logging.info("Starting command: %s", command)
     predictor = UltralyticsPredictor(args.weights, config)
+    narrator = None
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        narrator = Narrator(
+            HERE.parent / "cache" / "narration" / f"{DESCRIBE_VERSION}_{args.voice_id}_{args.tts_model}",
+            lambda label: gemini_describe(label, args.model),
+            lambda text: elevenlabs_speak(text, args.voice_id, args.tts_model),
+        )
+    else:
+        print("Spoken descriptions off: set ELEVENLABS_API_KEY to enable them.", file=sys.stderr)
 
     def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:
         run_live(
@@ -469,10 +512,12 @@ def main() -> None:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)
         else:
-            run_with_display(args.camera, detect)
+            run_with_display(args.camera, detect, narrator)
     except KeyboardInterrupt:
         pass
     finally:
+        if narrator:
+            narrator.close()
         if not args.no_display:
             cv2.destroyAllWindows()
 
