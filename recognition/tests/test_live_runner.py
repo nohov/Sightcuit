@@ -1,3 +1,4 @@
+from concurrent.futures import Future
 import json
 from pathlib import Path
 import tempfile
@@ -50,13 +51,44 @@ class FakeTransport:
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
-def run(summaries, transport, min_call_interval=0.0, times=None):
+class SyncExecutor:
+    """Finishes every Gemini call before submit returns, so a frame's label lands on that same frame."""
+
+    def submit(self, fn, *args):
+        future = Future()
+        try:
+            future.set_result(fn(*args))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+
+class HeldExecutor:
+    """Keeps every Gemini call unfinished until the test releases it, like a slow API."""
+
+    def __init__(self):
+        self.held = []
+
+    def submit(self, fn, *args):
+        future = Future()
+        self.held.append((future, fn, args))
+        return future
+
+    def release(self):
+        for future, fn, args in self.held:
+            future.set_result(fn(*args))
+
+
+def run(summaries, transport, min_call_interval=0.0, times=None, executor=None, between=None):
     frames = [np.zeros((200, 300, 3), dtype=np.uint8) for _ in summaries]
+    if between:
+        frames = (between(index) or frame for index, frame in enumerate(frames))
     clock = iter(times or range(0, 1000)).__next__
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "live.jsonl"
         runner.run_live(frames, output, FakePredictor(summaries), CONFIG, "test-model", "unit test",
-                        transport=transport, min_call_interval=min_call_interval, clock=clock)
+                        transport=transport, min_call_interval=min_call_interval, clock=clock,
+                        executor=executor or SyncExecutor())
         return [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
 
 
@@ -146,6 +178,17 @@ class LiveRunnerTests(unittest.TestCase):
         for label in ("  ", "x" * 61):
             records = run([[row(A)]], FakeTransport(label=label))
             self.assertIn("invalid label", records[0]["error"])
+
+    def test_slow_gemini_does_not_block_detection(self):
+        transport, executor = FakeTransport(), HeldExecutor()
+        # Release the held call just before frame 3 is detected.
+        records = run([[row(A)], [row(A), row(B)], [row(A), row(B)], [row(A), row(B)]], transport,
+                      executor=executor, between=lambda i: executor.release() if i == 3 else None)
+        # One call at a time: B is sent on the frame after A's answer lands.
+        self.assertEqual([r["api_called"] for r in records], [True, False, False, False])
+        self.assertEqual([len(r["detections"]) for r in records], [0, 0, 0, 1])
+        self.assertEqual([len(r["raw_predictions"]) for r in records], [1, 2, 2, 2])
+        self.assertEqual(records[3]["detections"][0]["label_source"], "gemini")
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))

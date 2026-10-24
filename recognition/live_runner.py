@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from contextlib import closing, contextmanager
 import json
 import logging
 import math
@@ -67,6 +68,16 @@ def is_duplicate(box: list[float], other: list[float]) -> bool:
             or intersection(box, other) >= CONTAINED_FRACTION * box_area(box))
 
 
+@contextmanager
+def _shutdown_on_exit(pool: Executor, owned: bool) -> Iterator[None]:
+    try:
+        yield
+    finally:
+        if owned:
+            # Quitting must not wait out a slow Gemini call; its late answer is simply dropped.
+            pool.shutdown(wait=False, cancel_futures=True)
+
+
 class TrackCache:
     """In-memory, per-session map from track ID to its proposal and cached Gemini label."""
 
@@ -117,6 +128,7 @@ def run_live(
     clock: Callable[[], float] = time.monotonic,
     show: Callable[[Any, list[dict[str, Any]]], bool] | None = None,
     thinking_level: str | None = None,
+    executor: Executor | None = None,
 ) -> None:
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
@@ -124,9 +136,11 @@ def run_live(
     template = (HERE / "prompt-live-v1.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
+    in_flight: tuple[Future, list[dict[str, Any]]] | None = None
+    pool = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    with output.open("a", encoding="utf-8") as destination:
+    with output.open("a", encoding="utf-8") as destination, _shutdown_on_exit(pool, executor is None):
         for frame_index, frame in enumerate(frames):
             started = time.perf_counter()
             tracks: list[dict[str, Any]] = []
@@ -146,20 +160,22 @@ def run_live(
                 tracks, suppressed = cache.update(sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS])
                 pending = [track for track in tracks if track["label"] is None]
                 # Only unlabelled tracks go to Gemini; cached labels cost no API call.
-                if pending and clock() - last_call >= min_call_interval:
+                if in_flight is None and pending and clock() - last_call >= min_call_interval:
                     last_call = clock()
                     encoded, jpeg = cv2.imencode(".jpg", frame)
                     if not encoded:
                         raise RuntimeError("could not JPEG-encode camera frame")
                     prompt = template.replace("{regions}", region_text([t["proposal"] for t in pending], size))
                     api_called = True
-                    response = transport(
-                        build_payload(jpeg.tobytes(), "image/jpeg", prompt, thinking_level, RESPONSE_SCHEMA),
-                        model, timeout,
-                    )
+                    payload = build_payload(jpeg.tobytes(), "image/jpeg", prompt, thinking_level, RESPONSE_SCHEMA)
+                    in_flight = (pool.submit(transport, payload, model, timeout), pending)
+                # Gemini runs off the detection thread, so boxes keep updating; labels land on the frame it finishes.
+                if in_flight is not None and in_flight[0].done():
+                    (future, sent), in_flight = in_flight, None
+                    response = future.result()
                     raw_response = response_text(response)
-                    labels = parse_labels(json.loads(raw_response), len(pending), allowed=None)
-                    for track, label in zip(pending, labels):
+                    labels = parse_labels(json.loads(raw_response), len(sent), allowed=None)
+                    for track, label in zip(sent, labels):
                         track["label"], track["labelled_frame"] = label, frame_index
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
@@ -303,7 +319,7 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
                     break
         finally:
             latest.stop()
-            worker.join()  # may wait for an in-flight inference or Gemini call to finish
+            worker.join()  # may wait for an in-flight inference to finish
     if failure:
         raise failure[0]
 
@@ -324,7 +340,8 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--min-call-interval", type=float, default=DEFAULT_MIN_CALL_INTERVAL,
                         help="minimum seconds between Gemini calls")
-    parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"))
+    parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"), default="minimal",
+                        help="minimal keeps live labels fast; higher levels took 4-28 s per call")
     parser.add_argument("--no-display", action="store_true")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
