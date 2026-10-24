@@ -300,11 +300,12 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="per-frame JSONL output (appended)")
-    parser.add_argument("--weights", required=True, type=Path, help="existing local YOLO-World weights")
+    parser.add_argument("--weights", type=Path, default=HERE.parent / "training/weights/scavscrap_v2_best.pt",
+                        help="existing local YOLO weights")
     parser.add_argument("--allow-upload", action="store_true",
                         help="confirm camera frames may be uploaded to Google")
     parser.add_argument("--camera", type=int, default=0)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, default=HERE / "scavscrap_v2_model.json")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
     parser.add_argument("--proposal-confidence", type=float, default=DEFAULT_PROPOSAL_CONFIDENCE)
     parser.add_argument("--iou", type=float)
