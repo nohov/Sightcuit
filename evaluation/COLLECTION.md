@@ -53,8 +53,24 @@ runtime must determine detections from decoded image pixels. The harness uses th
 path only to open the image and never maps filename text to a class.
 
 For detection evaluation, add reviewed ground-truth boxes in original-image
-pixel `xyxy` coordinates using a separately frozen annotation format. A
-whole-image expected outcome is not a localization annotation.
+pixel `xyxy` coordinates. A whole-image expected outcome is not a localization
+annotation. The frozen format is one JSON file per image at `annotation_path`:
+
+```json
+{
+  "image_id": "img-001",
+  "image_size_hw_pixels": [3024, 4032],
+  "boxes": [
+    {"class": "laptop", "box_xyxy_pixels": [120, 340, 1980, 2210]}
+  ]
+}
+```
+
+Box every visible target-class instance, not just the primary device. Use
+`"boxes": []` for distractor and empty scenes. Save photos upright with no EXIF
+rotation tag; the Gemini runner refuses rotated images so boxes cannot disagree
+about orientation. Gemini uploads require provenance notes that permit sending
+the image to Google.
 
 ## Grouping and leakage control
 

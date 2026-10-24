@@ -146,17 +146,22 @@ class UltralyticsPredictor:
         self.weights = weights.resolve()
         self.weights_sha256 = sha256_file(self.weights)
         self.model = YOLO(str(self.weights), task="detect")
+        if config.get("open_vocabulary"):
+            # Text prompts become the class list, so the check below verifies they took effect.
+            self.model.set_classes(config["expected_builtin_classes"])
         names = self.model.names
         actual_classes = [names[index] for index in range(len(names))]
         if actual_classes != config["expected_builtin_classes"]:
             raise RuntimeError("local weights class list does not match the frozen configuration")
 
-    def predict(self, image_path: Path, confidence: float, iou: float, device: str) -> dict[str, Any]:
+    def predict(self, image_path: Path, confidence: float, iou: float, device: str,
+                agnostic_nms: bool = False) -> dict[str, Any]:
         results = self.model.predict(
-            source=str(image_path),
+            source=str(image_path) if isinstance(image_path, Path) else image_path,
             conf=confidence,
             iou=iou,
             device=device,
+            agnostic_nms=agnostic_nms,
             save=False,
             verbose=False,
         )
