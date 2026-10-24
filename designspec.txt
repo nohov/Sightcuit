@@ -1,4 +1,4 @@
-# Electronics Pokédex — recognition experiment design, v0.5
+# Electronics Pokédex — recognition experiment design, v0.6
 
 The future product helps engineering students learn about electronics. The
 current milestone does not build that product. It determines, with recorded
@@ -18,33 +18,33 @@ model has run and its result satisfies an accepted mapping policy.
 ## Fixed target contract
 
 1. `laptop`
-2. `desktop_computer_tower`
-3. `monitor`
-4. `printer`
-5. `projector`
+2. `phone`
+3. `headphones`
+4. `smartwatch`
+5. `speaker`
 
 Exact manufacturer, model, internal parts, material content, value, instance
 masks, and multi-device tracking are outside this milestone.
 
 ## Baseline
 
-The first proposed baseline is Ultralytics YOLO11n Detect with COCO-pretrained
+The first proposed baseline is Ultralytics YOLO26n Detect with COCO-pretrained
 weights. It is an object detector: each output is a class, confidence, and
 bounding box. A box is not a mask, and an absent class is unsupported rather
 than an implicit negative classifier for that project class.
 
-The frozen COCO list contains the exact raw class `laptop`. It does not contain
-the project classes `desktop_computer_tower`, `monitor`, `printer`, or
-`projector`. It contains `tv`, which is not mapped to `monitor`. Therefore the
-initial support table is:
+The frozen COCO list contains the exact raw classes `laptop` and `cell phone`.
+It does not contain the project classes `headphones`, `smartwatch`, or
+`speaker`. It contains `clock`, which is not mapped to `smartwatch`. Therefore
+the initial support table is:
 
-| Project class | YOLO11n COCO support | Mapping |
+| Project class | YOLO26n COCO support | Mapping |
 | --- | --- | --- |
 | `laptop` | Exact built-in class | `laptop` → `laptop` |
-| `desktop_computer_tower` | Unsupported | none |
-| `monitor` | Unsupported | none; `tv` explicitly rejected |
-| `printer` | Unsupported | none |
-| `projector` | Unsupported | none |
+| `phone` | Exact built-in class | `cell phone` → `phone` |
+| `headphones` | Unsupported | none |
+| `smartwatch` | Unsupported | none; `clock` explicitly rejected |
+| `speaker` | Unsupported | none |
 
 This limited coverage is an experiment result about the label space, not a
 reason to invent mappings. Later evidence may justify evaluating a different
@@ -93,14 +93,14 @@ The owner approved a detection bake-off on one reviewed, box-annotated test set.
 
 The **primary candidate** is whole-image Gemini 3.5 Flash-Lite: one call per
 image returns labelled boxes for the five classes. In unscored smoke tests on
-15 photos it found all 21 target devices.
+15 photos of the previous class list it found all 21 target devices.
 
 The **fallback candidate** is the cascade: local YOLO-World proposes boxes at a
 low confidence threshold with class-agnostic NMS, then one Gemini call per image
 labels every proposal as one of the five classes or `none`. Images with no
 proposals make no API call, which matters for a later live-camera mode, but
-recall is bounded by YOLO's proposals: YOLO-World missed two of three
-projectors at any usable threshold.
+recall is bounded by YOLO's proposals: on the previous class list YOLO-World
+missed two of three projectors at any usable threshold.
 
 Gemini 3.8 Flash is kept for comparison only. On the free tier it is limited
 to 20 requests per day and returned timeouts and HTTP 503 errors in smoke tests,
@@ -112,7 +112,7 @@ so a full run needs billing enabled.
 | Cascade (fallback) | `recognition/cascade_runner.py` | `yolo_world_l_model.json` proposals, `--model gemini-3.5-flash-lite`, `prompt-cascade-v1.txt` |
 | Gemini 3.8 Flash | `recognition/gemini_runner.py` | `--model gemini-3.8-flash`, same prompt |
 | YOLO-World S / L / X | `recognition/yolo_runner.py` | `yolo_world_model.json`, `yolo_world_l_model.json`, `yolo_world_x_model.json` (same 5 prompts) |
-| YOLO11n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop only) |
+| YOLO26n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop and phone only) |
 
 `evaluation/score_detection.py` scores every run with the same greedy IoU ≥ 0.5
 matching. The decision rule is frozen in `evaluation/bakeoff_report_template.md`
