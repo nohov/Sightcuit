@@ -1,3 +1,5 @@
+import base64
+from concurrent.futures import Future
 import json
 from pathlib import Path
 import tempfile
@@ -39,27 +41,62 @@ class FakePredictor:
 class FakeTransport:
     """Labels every region it is sent as speaker and remembers each prompt's region lines."""
 
-    def __init__(self, fail_first=False):
+    def __init__(self, fail_first=False, label="speaker", identified=True, hint="ok"):
         self.calls = []
+        self.payloads = []
         self.fail_first = fail_first
+        self.label, self.identified, self.hint = label, identified, hint
 
     def __call__(self, payload, model, timeout):
         prompt = payload["contents"][0]["parts"][1]["text"]
         regions = [line for line in prompt.splitlines() if line[:1].isdigit() and ": [" in line]
         self.calls.append(regions)
+        self.payloads.append(payload)
         if self.fail_first and len(self.calls) == 1:
             raise RuntimeError("Gemini HTTP 503: overloaded")
-        items = [{"index": i, "label": "speaker"} for i in range(len(regions))]
+        items = [{"index": i, "label": self.label, "identified": self.identified, "hint": self.hint}
+                 for i in range(len(regions))]
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
-def run(summaries, transport, min_call_interval=0.0, times=None):
+class SyncExecutor:
+    """Finishes every Gemini call before submit returns, so a frame's label lands on that same frame."""
+
+    def submit(self, fn, *args):
+        future = Future()
+        try:
+            future.set_result(fn(*args))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+
+class HeldExecutor:
+    """Keeps every Gemini call unfinished until the test releases it, like a slow API."""
+
+    def __init__(self):
+        self.held = []
+
+    def submit(self, fn, *args):
+        future = Future()
+        self.held.append((future, fn, args))
+        return future
+
+    def release(self):
+        for future, fn, args in self.held:
+            future.set_result(fn(*args))
+
+
+def run(summaries, transport, min_call_interval=0.0, times=None, executor=None, between=None, min_track_frames=1):
     frames = [np.zeros((200, 300, 3), dtype=np.uint8) for _ in summaries]
+    if between:
+        frames = (between(index) or frame for index, frame in enumerate(frames))
     clock = iter(times or range(0, 1000)).__next__
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "live.jsonl"
         runner.run_live(frames, output, FakePredictor(summaries), CONFIG, "test-model", "unit test",
-                        transport=transport, min_call_interval=min_call_interval, clock=clock)
+                        transport=transport, min_call_interval=min_call_interval, clock=clock,
+                        executor=executor or SyncExecutor(), min_track_frames=min_track_frames)
         return [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
 
 
@@ -128,11 +165,126 @@ class LiveRunnerTests(unittest.TestCase):
 
     def test_calls_are_spaced_by_min_interval(self):
         transport = FakeTransport()
-        # clock is read on the first frame's check and on its call, then once per later check
+        # clock is read once per frame
         records = run([[row(A)], [row(A), row(B)], [row(A), row(B)]], transport,
-                      min_call_interval=2.0, times=[0, 0, 1, 2, 2])
+                      min_call_interval=2.0, times=[0, 1, 2])
         self.assertEqual([r["api_called"] for r in records], [True, False, True])
         self.assertIsNone(records[1]["raw_predictions"][1]["label_source"])
+
+    def test_free_text_label_is_kept_with_detector_class(self):
+        records = run([[row(A)]], FakeTransport(label="  Apple MacBook "))
+        detection = records[0]["detections"][0]
+        self.assertEqual(detection["label"], "Apple MacBook")
+        self.assertEqual(detection["raw_class_name"], "speaker")
+
+    def test_none_label_is_not_a_detection(self):
+        records = run([[row(A)]], FakeTransport(label="none"))
+        self.assertEqual(records[0]["detections"], [])
+        self.assertEqual(records[0]["raw_predictions"][0]["gemini_label"], "none")
+
+    def test_empty_or_overlong_label_is_an_error(self):
+        for label in ("  ", "x" * 61):
+            records = run([[row(A)]], FakeTransport(label=label))
+            self.assertIn("invalid label", records[0]["error"])
+
+    def test_slow_gemini_does_not_block_detection(self):
+        transport, executor = FakeTransport(), HeldExecutor()
+        # Release the held call just before frame 3 is detected.
+        records = run([[row(A)], [row(A), row(B)], [row(A), row(B)], [row(A), row(B)]], transport,
+                      executor=executor, between=lambda i: executor.release() if i == 3 else None)
+        # One call at a time: B is sent on the frame after A's answer lands.
+        self.assertEqual([r["api_called"] for r in records], [True, False, False, False])
+        self.assertEqual([len(r["detections"]) for r in records], [0, 0, 0, 1])
+        self.assertEqual([len(r["raw_predictions"]) for r in records], [1, 2, 2, 2])
+        self.assertEqual(records[3]["detections"][0]["label_source"], "gemini")
+
+    def test_flicker_is_never_sent_and_stable_box_waits_for_min_frames(self):
+        transport = FakeTransport()
+        # B flickers for one frame; A stays for three.
+        records = run([[row(A), row(B)], [row(A)], [row(A)]], transport, min_track_frames=3)
+        self.assertEqual([r["api_called"] for r in records], [False, False, True])
+        self.assertEqual(transport.calls, [["0: [100, 100, 500, 500]"]])
+
+    def test_hidden_boxes_are_not_drawn(self):
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0]}
+        stable = runner.MIN_TRACK_FRAMES
+        runner.draw_tracks(frame, [
+            {"track_id": 0, "label": "none", "hint": None, "seen": stable, "proposal": proposal},
+            {"track_id": 1, "label": None, "hint": None, "seen": 1, "proposal": proposal},
+        ])
+        self.assertEqual(frame.sum(), 0)
+
+    def test_detector_box_shows_before_gemini_answers(self):
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0], "raw_class_name": "phone"}
+        runner.draw_tracks(frame, [{"track_id": 1, "label": None, "hint": None,
+                                    "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal}])
+        self.assertGreater(frame[:, :, 2].sum(), 0)  # yellow has red; Gemini's green does not
+        labelled = np.zeros_like(frame)
+        runner.draw_tracks(labelled, [{"track_id": 1, "label": "Apple iPhone", "hint": None,
+                                       "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal}])
+        self.assertEqual(labelled[:, :, 2].sum(), 0)
+        self.assertGreater(labelled[:, :, 1].sum(), 0)
+
+    def test_click_picks_smallest_named_box(self):
+        def track(i, box, label):
+            return {"track_id": i, "label": label, "seen": runner.MIN_TRACK_FRAMES,
+                    "proposal": {"box_xyxy_pixels": box}}
+
+        laptop = track(0, [0, 0, 300, 200], "Apple MacBook")
+        phone = track(1, [100, 50, 150, 150], "Apple iPhone")
+        pending = track(2, [110, 60, 140, 140], None)
+        junk = track(3, [120, 70, 130, 130], "none")
+        tracks = [laptop, phone, pending, junk]
+        self.assertIs(runner.track_at(tracks, 125, 100), phone)
+        self.assertIs(runner.track_at(tracks, 20, 20), laptop)
+        self.assertIsNone(runner.track_at(tracks, 400, 20))
+
+    def test_description_panel_is_drawn_at_the_bottom(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        runner.draw_description(frame, "Apple iPhone", "word " * 60)
+        self.assertEqual(frame[:200].sum(), 0)
+        self.assertGreater(frame[-40:].sum(), 0)
+
+    def test_each_region_gets_a_full_resolution_close_up(self):
+        transport = FakeTransport()
+        run([[row(A), row(B, 0.8)]], transport)
+        parts = transport.payloads[0]["contents"][0]["parts"]
+        self.assertEqual([p.get("text") for p in parts[2::2]], ["Close-up of region 0:", "Close-up of region 1:"])
+        crop = cv2.imdecode(np.frombuffer(base64.b64decode(parts[3]["inline_data"]["data"]), np.uint8), cv2.IMREAD_COLOR)
+        self.assertEqual(crop.shape[:2], (104, 156))  # box A 120x80 plus 15% padding, clipped at the top edge
+
+    def test_generic_label_shows_hint_and_is_reasked_after_interval(self):
+        transport = FakeTransport(label="smartphone", identified=False, hint="move closer")
+        records = run([[row(A)]] * 4, transport, times=[0, 5, 10, 11])
+        self.assertEqual([r["api_called"] for r in records], [True, False, True, False])
+        self.assertEqual(records[1]["detections"][0]["hint"], "move closer")
+        self.assertFalse(records[1]["detections"][0]["identified"])
+
+    def test_identified_label_is_never_reasked(self):
+        transport = FakeTransport(label="Apple iPhone")
+        records = run([[row(A)]] * 3, transport, times=[0, 50, 100])
+        self.assertEqual(len(transport.calls), 1)
+        self.assertIsNone(records[2]["detections"][0]["hint"])
+
+    def test_answer_missing_hint_is_an_error(self):
+        transport = FakeTransport(hint="try harder")
+        records = run([[row(A)]], transport)
+        self.assertIn("invalid identified or hint", records[0]["error"])
+
+    def test_moved_phone_keeps_its_track_and_label(self):
+        # Real session scaled down: the phone jumps with IoU 0.00-0.26 between detections.
+        transport = FakeTransport(label="Apple iPhone")
+        records = run([[row((100, 50, 160, 150))], [], [row((150, 60, 210, 160))], [row((95, 40, 155, 140))]], transport)
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual([r["detections"][0]["track_id"] for r in records if r["detections"]], [0, 0, 0])
+
+    def test_far_box_of_other_class_starts_new_track(self):
+        transport = FakeTransport()
+        far = {**row((150, 60, 210, 160)), "name": "laptop", "class": 0}
+        records = run([[row((100, 50, 160, 150))], [far]], transport)
+        self.assertEqual(len(transport.calls), 2)
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))
@@ -156,8 +308,9 @@ class RelayServerTests(unittest.TestCase):
 
     def setUp(self):
         self.latest = runner.LatestFrame()
-        self.shown = {"tracks": [{"track_id": 0, "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0]},
-                                  "label": "speaker"}], "image_size": [200, 300]}
+        self.shown = {"tracks": [{"track_id": 0, "label": "JBL speaker",
+                                  "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "project_class": "speaker"}}],
+                      "image_size": [200, 300]}
         self.server = runner.make_relay_server(("127.0.0.1", 0), "secret", self.latest, self.shown, lambda: True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -188,8 +341,10 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self.latest.frame.shape, (200, 300, 3))
         self.assertIs(self.shown["frame"], self.latest.frame)
+        # The iOS app colours a box green only when label is a project class, so the class goes in label.
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
-                                            "label": "speaker"}], "image_size_hw_pixels": [200, 300]})
+                                            "label": "speaker", "name": "JBL speaker"}],
+                                "image_size_hw_pixels": [200, 300]})
 
     def get(self, path):
         return urllib.request.urlopen(f"http://127.0.0.1:{self.server.server_address[1]}{path}", timeout=5)
@@ -201,8 +356,9 @@ class RelayServerTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, 401)
 
     def test_events_send_the_last_detection_as_a_dashboard_record(self):
-        self.shown.update(seq=3, tracks=[{"track_id": 4, "label": "laptop", "labelled_frame": 2,
-                                          "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "confidence": 0.5}}])
+        self.shown.update(seq=3, tracks=[{"track_id": 4, "label": "Apple MacBook", "labelled_frame": 2, "hint": None,
+                                          "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "confidence": 0.5,
+                                                       "project_class": "laptop"}}])
         with self.get("/events?token=secret") as response:
             self.assertEqual(response.headers["Content-Type"], "text/event-stream")
             self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
@@ -210,9 +366,22 @@ class RelayServerTests(unittest.TestCase):
         record = json.loads(line.removeprefix("data: "))
         self.assertEqual(record["frame_index"], 2)
         self.assertEqual(record["image_size_hw_pixels"], [200, 300])
-        self.assertEqual(record["tracks"], [{"track_id": 4, "gemini_label": "laptop", "label_source": "gemini",
+        self.assertEqual(record["tracks"], [{"track_id": 4, "gemini_label": "laptop", "name": "Apple MacBook",
+                                             "hint": None, "label_source": "gemini",
                                              "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
                                                           "confidence": 0.5}}])
+
+    def test_record_sends_project_class_for_dashboard_and_free_text_name(self):
+        def track(label, project_class):
+            return {"track_id": 0, "label": label, "labelled_frame": 1, "hint": "show the logo side",
+                    "proposal": {"box_xyxy_pixels": [0, 0, 1, 1], "project_class": project_class}}
+
+        tracks = runner.dashboard_record({"seq": 2, "image_size": [1, 1], "tracks": [
+            track("smartphone", "phone"), track("Logitech keyboard", None), track("none", "phone"), track(None, "phone"),
+        ]})["tracks"]
+        self.assertEqual([(t["gemini_label"], t["name"]) for t in tracks],
+                         [("phone", "smartphone"), ("Logitech keyboard", "Logitech keyboard"),
+                          ("none", None), (None, None)])
 
     def test_stream_sends_the_newest_relayed_frame_as_jpeg(self):
         self.shown["frame"] = np.zeros((20, 30, 3), dtype=np.uint8)

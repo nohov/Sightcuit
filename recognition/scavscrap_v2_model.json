@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "model_identifier": "ScavScrap v2 fine-tuned YOLO11n (training/weights/scavscrap_v2_best.pt, mAP50 0.683)",
+  "weights_filename": "scavscrap_v2_best.pt",
+  "task": "object_detection",
+  "dataset": "training/datasets/scavscrap (21,185 images, see training/HANDOFF.md)",
+  "open_vocabulary": false,
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.7
+  },
+  "expected_builtin_classes": [
+    "laptop",
+    "desktop_computer_tower",
+    "monitor",
+    "printer",
+    "projector",
+    "keyboard",
+    "mouse",
+    "phone",
+    "tablet",
+    "tv",
+    "router"
+  ],
+  "raw_to_project_mapping": {
+    "laptop": "laptop",
+    "phone": "phone"
+  },
+  "target_support": {
+    "laptop": {
+      "status": "supported_exact",
+      "raw_class_names": [
+        "laptop"
+      ],
+      "reason": "Trained class laptop matches labels/classes.json."
+    },
+    "phone": {
+      "status": "supported_exact",
+      "raw_class_names": [
+        "phone"
+      ],
+      "reason": "Trained class phone is a handheld mobile phone; tablet is a separate trained class."
+    },
+    "headphones": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no headphones class; the v3 run in training/HANDOFF.md adds one."
+    },
+    "smartwatch": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no watch class; the v3 run in training/HANDOFF.md adds one."
+    },
+    "speaker": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no speaker class; the v3 run in training/HANDOFF.md adds one."
+    }
+  },
+  "sources": [
+    "training/HANDOFF.md"
+  ]
+}
