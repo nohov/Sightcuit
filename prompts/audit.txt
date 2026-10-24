@@ -1,7 +1,0 @@
-Read AGENTS.md. You own audit/ only. Independently audit labels/, research/ and
-baseline/ outputs. Verify source claims against original documentation, review
-class-boundary consistency and license evidence, check artifact existence and
-whether any planned experiment was misrepresented as executed. Do not edit the
-producer files. Write audit/report.md with pass/revise/needs_input per role and
-actionable findings with exact file references. Write audit/completion.json.
-Do not approve dataset use without sample inspection; no downloads this wave.

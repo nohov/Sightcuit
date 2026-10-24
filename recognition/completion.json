@@ -1,0 +1,33 @@
+{
+  "task": "Evaluate a local pretrained YOLO object detector against the five-class contract",
+  "status": "needs_input",
+  "artifacts": [
+    "recognition/yolo_runner.py",
+    "recognition/yolo_model.json",
+    "recognition/prediction.schema.json",
+    "recognition/tests/test_yolo_runner.py",
+    "recognition/report.md"
+  ],
+  "checks": [
+    "python3 -m unittest recognition.tests.test_yolo_runner -v (7 tests passed)",
+    "python3 -m unittest recognition.tests.test_vlm_runner -v (4 tests passed)",
+    "python3 -m unittest evaluation.tests.test_score -v (5 tests passed)",
+    "python3 -m unittest tests.test_integration -v (2 tests passed)",
+    "python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py evaluation/score.py (passed)",
+    "python3 recognition/yolo_runner.py --help (passed)",
+    "python3 -m json.tool on YOLO config, prediction schema, and this completion contract (passed)",
+    "runner invoked with an absent local weights path (expected exit 1; automatic-download blocker reported)"
+  ],
+  "limitations": [
+    "Ultralytics and PyTorch are not installed in the inspected Python environment.",
+    "No local YOLO weights were found.",
+    "No permitted test images exist in the repository.",
+    "No real image inference ran; accuracy and latency are unmeasured.",
+    "The proposed COCO-pretrained YOLO11n mapping supports only laptop among the five target classes."
+  ],
+  "sources": [
+    "https://docs.ultralytics.com/models/yolo11/",
+    "https://docs.ultralytics.com/modes/predict/",
+    "https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml"
+  ]
+}

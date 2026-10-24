@@ -1,269 +1,102 @@
-**Electronics Pokédex — technical design specification, v0.3**
+# Electronics Pokédex — recognition experiment design, v0.5
 
-The product helps beginner engineering students understand the electronics around them. A student photographs a device, confirms its identity, and opens a sourced explanation of how it works. Recognition is the entry point to learning. Saving discoveries is optional and must not block access to explanations.
+The future product helps engineering students learn about electronics. The
+current milestone does not build that product. It determines, with recorded
+evidence, whether a pretrained object detector is useful for five device classes.
 
-Core product journey: identify → confirm → understand → explore.
-
-The current engineering milestone remains a bounded pretrained-recognition test. It does not replace the full product goal. Content and interface requirements below describe the subsequent learning prototype; they do not authorize deployment, model training, or paid services.
-
-### 1. Scope and identification contract
-
-Current recognition-test classes (the existing five-class benchmark):
+## Sequence
 
 ```text
-laptop
-desktop_computer_tower
-monitor
-printer
-projector
+pretrained detector evaluation
+→ evidence-based model decision
+→ application integration later
 ```
 
-The learning prototype should also cover televisions as their own family (`television`), distinct from monitors. Add this sixth family to recognition, labeling, evaluation and content together when implementing that prototype. Do not silently remap TVs to monitors or change the existing benchmark midway through a run. Additional supported families can follow as recognition and reviewed explanations become available.
+No application may present a device as visually identified until a pixel-based
+model has run and its result satisfies an accepted mapping policy.
 
-Each prediction identifies a **device family**. Manufacturer, exact model, internal components, and specifications require separate evidence.
+## Fixed target contract
 
-The interface supports three outcomes:
+1. `laptop`
+2. `desktop_computer_tower`
+3. `monitor`
+4. `printer`
+5. `projector`
 
-| Outcome | Behavior |
-|---|---|
-| Supported device identified | Show the family and learning card |
-| Ambiguous | Offer candidates or request another photo |
-| Unsupported / unreadable | Explain that identification is unavailable |
+Exact manufacturer, model, internal parts, material content, value, instance
+masks, and multi-device tracking are outside this milestone.
 
-The first learning prototype uses photo capture and device explanations. Continuous AR tracking and automatic 3D reconstruction are later enhancements.
+## Baseline
 
-### 2. Proposed architecture
+The first proposed baseline is Ultralytics YOLO11n Detect with COCO-pretrained
+weights. It is an object detector: each output is a class, confidence, and
+bounding box. A box is not a mask, and an absent class is unsupported rather
+than an implicit negative classifier for that project class.
 
-```mermaid
-flowchart LR
-    A[Mobile client] -->|Selected photo| B[Backend API]
-    B --> C[Recognition adapter]
-    C --> D[Pretrained vision model]
-    C --> E[Prediction normalization]
-    E --> F[Learning catalog]
-    F --> B
-    B -->|Result and learning card| A
-    A -->|Save discovery| B
-    B --> G[(PostgreSQL)]
-    B --> H[Object storage]
-```
+The frozen COCO list contains the exact raw class `laptop`. It does not contain
+the project classes `desktop_computer_tower`, `monitor`, `printer`, or
+`projector`. It contains `tv`, which is not mapped to `monitor`. Therefore the
+initial support table is:
 
-| Component | Proposed implementation | Responsibility |
-|---|---|---|
-| Mobile client | React Native + TypeScript | Camera capture, results, collection, notes |
-| Backend | Python + FastAPI | Recognition requests, catalog lookup, persistence |
-| Recognition adapter | Provider-independent Python interface | Normalize model responses and handle failures |
-| Database | PostgreSQL | Device families, reviewed content, scans, discoveries |
-| Object storage | Private bucket | Retained photos and evaluation assets |
-| Evaluation runner | Python scripts | Reproduce model comparisons and generate reports |
+| Project class | YOLO11n COCO support | Mapping |
+| --- | --- | --- |
+| `laptop` | Exact built-in class | `laptop` → `laptop` |
+| `desktop_computer_tower` | Unsupported | none |
+| `monitor` | Unsupported | none; `tv` explicitly rejected |
+| `printer` | Unsupported | none |
+| `projector` | Unsupported | none |
 
-**React Native is the proposed starting point because this version centers on photos and learning cards.** Reassess native camera/AR integration when continuous scanning becomes an implementation requirement.
+This limited coverage is an experiment result about the label space, not a
+reason to invent mappings. Later evidence may justify evaluating a different
+pretrained detector, such as an LVIS- or open-vocabulary model, in a separately
+frozen run.
 
-The exact recognition model remains a benchmark decision rather than a dependency assumed to meet our needs.
+## Reproducibility contract
 
-### 3. Recognition pipeline
+Each image record preserves:
 
-For v0.1, the user centers one device in the frame.
+- image ID, task, model and local weights filename;
+- SHA-256 of the exact weights;
+- runtime name/version, device, and hardware platform;
+- executed command and confidence/IoU thresholds;
+- elapsed time and explicit error;
+- original image dimensions;
+- raw Ultralytics summary rows;
+- original model class ID/name, confidence, and `xyxy` pixel box;
+- explicit project mapping or `unsupported` status.
 
-```text
-Capture photo
-→ Validate image
-→ Identify supported family or abstain
-→ Validate structured output
-→ Retrieve reviewed learning card
-→ Return result
-```
+The runner must receive an existing local weights file. It verifies the embedded
+class list before inference and refuses a mismatch. Manifest ground truth and
+provenance are never passed to the model. Filenames provide file locations only
+and never determine predictions.
 
-The recognition adapter exposes:
+## Evaluation inputs
 
-```python
-recognize(image, allowed_classes) -> RecognitionResult
-```
+Use 10–20 permitted photos per target class and 20–30 confusing or unsupported
+examples only after collection is approved. Include multiple physical devices,
+viewpoints, lighting, distances, occlusions, clutter, and empty scenes. Group
+related images by physical device and session.
 
-Normalized result:
+Detection scoring requires reviewed ground-truth boxes. The existing whole-image
+classification scorer is retained only for the separate VLM comparison and must
+not be used to claim YOLO localization quality.
 
-```typescript
-type DeviceFamily =
-  | "laptop"
-  | "desktop_computer_tower"
-  | "monitor"
-  | "printer"
-  | "projector"
-  | "television"; // Product target; the current benchmark uses its versioned five-class list.
+## Comparison, not default
 
-type RecognitionResult = {
-  status: "identified" | "ambiguous" | "unsupported" | "unreadable";
-  family: DeviceFamily | null;
-  candidates: Array<{
-    family: DeviceFamily;
-    score: number | null;
-  }>;
-  observedText: string[];
-  modelVersion: string;
-};
-```
+Qwen3-VL through Ollama remains a proposed whole-image classifier. It may produce
+one family outcome but not object boxes. It was not executed, and it cannot be
+reported as detection or segmentation.
 
-Model scores are stored with their origin. They are not displayed as calibrated probabilities unless independently validated.
+## Stop conditions
 
-For later room scanning, extend the response with instance IDs, bounding boxes, masks, and frame timestamps. A model that only describes an image is insufficient for accurate overlays.
+Do not install dependencies, download weights, use paid inference, start cloud
+jobs, collect a large dataset, read credentials, or modify global configuration.
+If runtime, local weights, or permitted images are absent, produce the harness,
+schemas, frozen mapping, tests, and blockers, then stop at `needs_input`.
 
-### 4. Learning content and evidence
+## Later application milestone
 
-The learning view is the primary result of a successful scan. It should answer a beginner's questions in this order:
-
-1. What is this device, and what problem does it solve?
-2. What enters it (information, energy, or material), and what comes out?
-3. What happens inside, step by step?
-4. Which major components perform those steps?
-5. Which engineering concepts does it demonstrate?
-6. What can I observe or change to understand it better?
-
-Use a short plain-language overview first, followed by expandable technical detail. Define unfamiliar terms on first use. Include a simple labeled functional diagram when it helps explain the flow of energy, information or material. Diagrams represent typical systems unless exact-model documentation supports them.
-
-Example content structures (editorial outlines, not approved factual cards):
-- Printer: purpose → print-job input and paper output → identify subtype if possible → subtype-specific operating sequence → major components → sensing/control concepts → an observation question.
-- Television: purpose → picture/audio input and output → image/sound processing → display and speaker subsystems → signals, pixels and energy concepts → an observation question.
-
-A generic printer identification must not automatically select a laser-printer explanation. If inkjet versus laser is uncertain, show their differences or ask for a label photo. Similarly, do not assign LCD-specific internals to every TV. Provide a family overview when the subtype is unknown.
-
-
-Learning cards come from a **reviewed catalog**, rather than being freely generated on every scan.
-
-```typescript
-type LearningCard = {
-  id: string;
-  family: DeviceFamily;
-  title: string;
-  purpose: string;
-  operatingPrinciple: string;
-  subtype: string | null;
-  inputs: string[];
-  outputs: string[];
-  operationSteps: Array<{ title: string; explanation: string }>;
-  glossary: Array<{ term: string; definition: string }>;
-  diagramAssetId: string | null;
-  comprehensionQuestion: { question: string; answer: string };
-  typicalComponents: Array<{
-    name: string;
-    function: string;
-  }>;
-  engineeringConcepts: string[];
-  observationActivities: string[];
-  sources: Array<{
-    title: string;
-    url: string;
-  }>;
-  revision: number;
-  reviewStatus: "draft" | "approved";
-};
-```
-
-Content rules:
-
-- Describe internal components as **typical**, unless verified for an exact model.
-- Separate visible observations from catalog knowledge.
-- Publish approved cards only.
-- Link technical claims to supporting documentation.
-- Keep initial activities observational; device-specific servicing instructions require a separate design.
-
-Later exact-model records can reference manufacturer documentation without changing the family-level recognition contract.
-
-### 5. Core data model
-
-| Entity | Key fields |
-|---|---|
-| `device_families` | Stable ID, name, definition, exclusions |
-| `learning_cards` | Family ID, content, revision, review status |
-| `content_sources` | Card ID, source URL, supported claim |
-| `scans` | ID, owner, status, prediction, model version, timing, optional image key |
-| `discoveries` | Owner, scan ID, confirmed family, saved card revision |
-| `notes` | Discovery ID, user text, timestamps |
-| `recognition_feedback` | Scan ID, correction, feedback type |
-
-A discovery stores the card revision shown at save time so content updates remain traceable.
-
-Evaluation datasets and training assets live separately from students’ collections.
-
-### 6. API contract
-
-| Endpoint | Behavior |
-|---|---|
-| `POST /v1/scans` | Accept photo and create recognition job |
-| `GET /v1/scans/{id}` | Return status, prediction, and card reference |
-| `GET /v1/device-families/{id}/card` | Return approved learning card |
-| `POST /v1/discoveries` | Save a completed scan |
-| `GET /v1/discoveries` | List the user’s collection |
-| `PATCH /v1/discoveries/{id}` | Update notes or confirmed family |
-| `POST /v1/scans/{id}/feedback` | Submit an identification correction |
-| `DELETE /v1/discoveries/{id}` | Remove a saved discovery |
-
-Use asynchronous scan status:
-
-```text
-queued → processing → completed
-                    ↘ failed
-```
-
-Start with one backend process and a bounded worker. Introduce a separate queue service when concurrency or job durability requires it.
-
-### 7. Client screens
-
-| Screen | Required behavior |
-|---|---|
-| Capture | Camera, gallery upload, framing guidance |
-| Processing | Progress state, cancellation, retry |
-| Identification | Family, uncertainty, correction action |
-| Learning card | Immediate beginner overview, input/output flow, operation steps, expandable components, glossary, diagram, comprehension question, and sources |
-| Collection | Saved devices grouped by family |
-| Discovery detail | Saved result, notes, card revision |
-
-Local state preserves a captured photo during recoverable network errors. Repeated submission uses an idempotency key to avoid duplicate scans.
-
-### 8. Privacy and access
-
-- Keep provider credentials on the backend.
-- Authorize every scan, photo, discovery, and note against its owner.
-- Use private storage and short-lived image access.
-- Delete temporary scan photos after processing unless the user chooses retention.
-- Treat saving to a collection and contributing an image to a dataset as separate choices.
-- Keep images and personal notes out of routine application logs.
-
-### 9. Evaluation and release gates
-
-Create an independent test set containing supported devices, confusing objects, and unsupported electronics. Group related photos by physical device and location to prevent leakage.
-
-Measure:
-
-| Area | Metrics |
-|---|---|
-| Identification | Precision, recall, confusion matrix by family |
-| Abstention | Wrong confident answers versus appropriate uncertainty |
-| Robustness | Results by lighting, viewpoint, occlusion, and device variant |
-| Performance | End-to-end median and p95 latency; failure rate |
-| Content | Factual errors, unsupported specificity, source coverage, correct handling of unknown subtypes |
-| Learning | Whether a beginner can explain the input/output, describe the main operating steps, and name a component’s role after reading |
-| Usability | Successful capture, correction, learning-card access, and saving |
-
-Proposed initial acceptance target: **at least 90% precision among accepted predictions for each supported family**, while separately reporting recall and the abstention rate. This is a target to validate, not current performance.
-
-Do not hide poor coverage by reporting accuracy only on easy accepted examples.
-
-### 10. Agent ownership and deliverables
-
-| Agent | Owned deliverables |
-|---|---|
-| Head | Task dependencies, decisions, integration status |
-| Recognition | Model adapter, benchmark scripts, prediction artifacts |
-| Learning content | Reviewed cards for supported product families, including television, with subtype boundaries and sources |
-| App/backend | Capture flow, API, persistence, collection |
-| Independent evaluation | Test manifests, audit findings, release report |
-
-Agents use the same class map and API schemas. Contract changes require updating the consumers before integration.
-
-**Current milestone:** execute the existing bounded recognition experiment, using the versioned five-class benchmark.
-
-**First learning-prototype milestone:** uploaded photo → identified or user-confirmed device family → approved beginner explanation. Include televisions through a coordinated class-map update. Saving a discovery is optional. Verify that beginners can explain the basic operation after using the card, alongside recognition quality.
-
-Recognition errors must be correctable before content selection. If no approved card exists, state that coverage is pending; do not fabricate a model-specific explanation.
-
-Model/provider selection, hosting costs, and device performance remain unverified; they are decisions for the baseline experiment.
+Only after an evidence-based model decision may a separate application milestone
+add photo capture, educational cards, corrections, and saved collections. Its UI
+must distinguish model detections, user corrections, unsupported classes, and
+failures without presenting guesses as visual recognition.

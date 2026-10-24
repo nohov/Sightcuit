@@ -1,62 +1,78 @@
-# Campus scanner: Herdr execution workspace
+# ScavScrap pretrained recognition evaluation
 
-Scope: identify and outline laptops, desktop computer towers, monitors, printers,
-and outdoor light poles. Later catalog and copper work is deferred.
+ScavScrap is evaluating whether an existing object detector can locate five
+electronics families for a later engineering-learning application:
 
-## Roadmap
+- `laptop`
+- `desktop_computer_tower`
+- `monitor`
+- `printer`
+- `projector`
 
-1. Label definitions — labels agent.
-2. Dataset/model source audit — research and baseline agents in parallel.
-3. Independent audit — separate audit agent after all three deliver artifacts.
-4. Pilot assembly — 150–200 reviewed images after source/sample verification.
-5. Baseline execution and targeted fine-tuning — after data validation.
-6. Locked campus walkthrough evaluation — requires actual independent footage.
-7. Mobile camera/tracking/overlay integration — after recognition evidence.
+The milestone order is:
 
-Only the first research wave and its audit are configured for execution now.
-Later phases need accepted inputs, actual images, compute and device testing.
+```text
+pretrained detector evaluation
+→ evidence-based model decision
+→ application integration later
+```
 
-## Commands
+There is no recognition web app in this milestone. The removed prototype matched
+filenames and did not inspect pixels; it was not computer vision.
 
-Run from this directory:
+## YOLO baseline
 
-    python3 control/herdr_control.py launch
-    python3 control/herdr_control.py status
-    python3 control/herdr_control.py audit
+The frozen baseline is a proposed local Ultralytics YOLO11n detection checkpoint
+pretrained on COCO. The exact COCO class list contains `laptop`; it does not
+contain `desktop_computer_tower`, `monitor`, `printer`, or `projector`. COCO's
+`tv` class is deliberately not mapped to `monitor`.
 
-Launch creates a dedicated Herdr workspace and starts three named Codex agents
-using the user's default model. Audit checks the completion contracts and creates
-a separate auditor. No automatic retraining loop or recurring automation is set.
-Herdr manages terminals and session state; this controller enforces this wave's
-dependencies. A completed process is not proof its work is correct.
+`recognition/yolo_runner.py`:
 
-Inspect agent output with `herdr agent read campus-labels --lines 80` (likewise
-campus-data, campus-baseline, campus-audit). Attach using `herdr` and select the
-scavscrap workspace. Keep unrelated workspaces untouched.
+- requires an existing local weights path, preventing automatic downloads;
+- verifies the weights' embedded class list against `recognition/yolo_model.json`;
+- reads image pixels through the YOLO runtime;
+- records raw detections, original names, scores, `xyxy` pixel boxes, thresholds,
+  runtime version, weights SHA-256, device, command, elapsed time, and errors;
+- never reads expected labels when producing predictions.
 
-## Verification
+## Current blocker
 
-completion.json must identify existing artifacts, actual checks, limitations and
-sources. The controller validates the shape and artifact containment/existence;
-the auditor checks semantic correctness and evidence. Human review of pilot and
-test labels and physical phone/walkthrough checks are required in later phases.
+No real inference ran. The inspected environment has no Ultralytics or PyTorch
+runtime, no local YOLO weights, and no project test images. ONNX Runtime is
+installed, but no compatible ONNX weights are present. The experiment status is
+therefore `needs_input`, not complete.
 
-Sources: https://herdr.dev/docs/quick-start/ and
-https://herdr.dev/docs/cli-reference/. Local CLI help is checked at setup time.
+After the owner separately supplies an approved runtime, an existing local
+`yolo11n.pt`, and permitted images in the manifest, the exact run shape is:
 
-## Setup status
+```sh
+python3 recognition/yolo_runner.py \
+  evaluation/manifest.csv \
+  evaluation/yolo_predictions.jsonl \
+  --weights /absolute/path/to/yolo11n.pt \
+  --confidence 0.25 \
+  --iou 0.70 \
+  --device cpu \
+  --log evaluation/yolo_run.log
+```
 
-Herdr 0.8.0 is installed and its compatible server is running. Dedicated workspace
-`wA` (scavscrap) and three role tabs were created. Task execution has NOT
-started successfully. Codex startup first invoked its updater; those startup
-processes were interrupted. Launch now suppresses the update check for these
-sessions only, without changing global configuration. Codex then exited with:
+Do not use the symbolic weights name in place of an existing path: Ultralytics
+can otherwise download missing weights automatically.
 
-    account/read failed during TUI bootstrap: account/read failed:
-    failed to load workspace requirements (code -32603)
+## Checks
 
-No agent deliverables or recognition experiments have been produced. Once Codex
-can start normally with this account, rerun the launch command. The auditor is
-configured but cannot be dispatched before valid producer artifacts exist.
+```sh
+python3 -m unittest recognition.tests.test_yolo_runner -v
+python3 -m unittest recognition.tests.test_vlm_runner -v
+python3 -m unittest evaluation.tests.test_score -v
+python3 -m unittest tests.test_integration -v
+python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py evaluation/score.py
+python3 recognition/yolo_runner.py --help
+```
 
-Project relocated to /Users/noahhova/Documents/scavscrap. Herdr role tabs now use this directory. No agents relaunched during relocation.
+The Qwen3-VL/Ollama files remain only as an unexecuted whole-image classification
+comparison. They do not produce boxes and are not the default baseline.
+
+See `recognition/report.md`, `READINESS.md`, and `RUNBOOK.md` for evidence,
+blockers, and collection/run instructions.

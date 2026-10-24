@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scavscrap.local/schemas/yolo-prediction-v1.json",
+  "title": "ScavScrap raw YOLO detection record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "image_id", "task", "model_identifier", "weights_filename",
+    "weights_sha256", "runtime", "runtime_version", "device", "hardware", "command",
+    "thresholds", "elapsed_ms", "image_size_hw_pixels", "box_format",
+    "raw_predictions", "detections", "error"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "image_id": {"type": "string", "minLength": 1},
+    "task": {"const": "object_detection"},
+    "model_identifier": {"type": "string", "minLength": 1},
+    "weights_filename": {"type": "string", "minLength": 1},
+    "weights_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "runtime": {"const": "ultralytics"},
+    "runtime_version": {"type": ["string", "null"]},
+    "device": {"type": "string"},
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "machine"],
+      "properties": {"system": {"type": "string"}, "machine": {"type": "string"}}
+    },
+    "command": {"type": "string"},
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence", "iou"],
+      "properties": {
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "iou": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "elapsed_ms": {"type": "number", "minimum": 0},
+    "image_size_hw_pixels": {
+      "type": ["array", "null"], "minItems": 2, "maxItems": 2,
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "box_format": {"const": "xyxy pixels: [left, top, right, bottom] in the original image"},
+    "raw_predictions": {"type": ["array", "null"]},
+    "detections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["raw_class_id", "raw_class_name", "confidence", "box_xyxy_pixels", "project_class", "mapping_status"],
+        "properties": {
+          "raw_class_id": {"type": "integer", "minimum": 0},
+          "raw_class_name": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "box_xyxy_pixels": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+          "project_class": {"type": ["string", "null"]},
+          "mapping_status": {"enum": ["mapped", "unsupported"]}
+        }
+      }
+    },
+    "error": {"type": ["string", "null"]}
+  }
+}

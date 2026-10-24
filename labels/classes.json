@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "task": "object_detection",
+  "classes": [
+    {
+      "id": "laptop",
+      "definition": "A portable computer with a screen and permanently attached hinged keyboard base visible as one device."
+    },
+    {
+      "id": "desktop_computer_tower",
+      "definition": "A standalone desktop computer chassis that houses the primary computing components and is separate from its display."
+    },
+    {
+      "id": "monitor",
+      "definition": "A standalone electronic display intended primarily as a computer or external display, excluding integrated all-in-one computers."
+    },
+    {
+      "id": "printer",
+      "definition": "A device whose functions include producing physical printed output, including multifunction printer-scanner-copiers."
+    },
+    {
+      "id": "projector",
+      "definition": "A digital video or data projector designed to cast an image onto a separate viewing surface."
+    }
+  ],
+  "non_class_outcomes": [
+    {
+      "id": "ambiguous",
+      "definition": "The image is readable, but a candidate device or its target class cannot be resolved reliably."
+    },
+    {
+      "id": "unsupported",
+      "definition": "The image is readable and contains no defensible instance of the five target classes."
+    },
+    {
+      "id": "unreadable",
+      "definition": "Image quality, corruption, obstruction, or cropping prevents reliable target-instance annotation."
+    }
+  ]
+}
