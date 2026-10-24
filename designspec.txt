@@ -1,10 +1,14 @@
-**ScavScrap technical design specification — electronics learning scanner, v0.1**
+**Electronics Pokédex — technical design specification, v0.3**
 
-The first release lets an engineering student photograph a device, identify its family, open a sourced learning card, and save the discovery. Recognition uses pretrained models; custom training follows only if evaluation shows a need.
+The product helps beginner engineering students understand the electronics around them. A student photographs a device, confirms its identity, and opens a sourced explanation of how it works. Recognition is the entry point to learning. Saving discoveries is optional and must not block access to explanations.
+
+Core product journey: identify → confirm → understand → explore.
+
+The current engineering milestone remains a bounded pretrained-recognition test. It does not replace the full product goal. Content and interface requirements below describe the subsequent learning prototype; they do not authorize deployment, model training, or paid services.
 
 ### 1. Scope and identification contract
 
-Initial classes:
+Current recognition-test classes (the existing five-class benchmark):
 
 ```text
 laptop
@@ -13,6 +17,8 @@ monitor
 printer
 projector
 ```
+
+The learning prototype should also cover televisions as their own family (`television`), distinct from monitors. Add this sixth family to recognition, labeling, evaluation and content together when implementing that prototype. Do not silently remap TVs to monitors or change the existing benchmark midway through a run. Additional supported families can follow as recognition and reviewed explanations become available.
 
 Each prediction identifies a **device family**. Manufacturer, exact model, internal components, and specifications require separate evidence.
 
@@ -24,7 +30,7 @@ The interface supports three outcomes:
 | Ambiguous | Offer candidates or request another photo |
 | Unsupported / unreadable | Explain that identification is unavailable |
 
-Copper estimates, pricing, automatic 3D reconstruction, and continuous AR tracking are deferred.
+The first learning prototype uses photo capture and device explanations. Continuous AR tracking and automatic 3D reconstruction are later enhancements.
 
 ### 2. Proposed architecture
 
@@ -82,7 +88,8 @@ type DeviceFamily =
   | "desktop_computer_tower"
   | "monitor"
   | "printer"
-  | "projector";
+  | "projector"
+  | "television"; // Product target; the current benchmark uses its versioned five-class list.
 
 type RecognitionResult = {
   status: "identified" | "ambiguous" | "unsupported" | "unreadable";
@@ -102,6 +109,24 @@ For later room scanning, extend the response with instance IDs, bounding boxes, 
 
 ### 4. Learning content and evidence
 
+The learning view is the primary result of a successful scan. It should answer a beginner's questions in this order:
+
+1. What is this device, and what problem does it solve?
+2. What enters it (information, energy, or material), and what comes out?
+3. What happens inside, step by step?
+4. Which major components perform those steps?
+5. Which engineering concepts does it demonstrate?
+6. What can I observe or change to understand it better?
+
+Use a short plain-language overview first, followed by expandable technical detail. Define unfamiliar terms on first use. Include a simple labeled functional diagram when it helps explain the flow of energy, information or material. Diagrams represent typical systems unless exact-model documentation supports them.
+
+Example content structures (editorial outlines, not approved factual cards):
+- Printer: purpose → print-job input and paper output → identify subtype if possible → subtype-specific operating sequence → major components → sensing/control concepts → an observation question.
+- Television: purpose → picture/audio input and output → image/sound processing → display and speaker subsystems → signals, pixels and energy concepts → an observation question.
+
+A generic printer identification must not automatically select a laser-printer explanation. If inkjet versus laser is uncertain, show their differences or ask for a label photo. Similarly, do not assign LCD-specific internals to every TV. Provide a family overview when the subtype is unknown.
+
+
 Learning cards come from a **reviewed catalog**, rather than being freely generated on every scan.
 
 ```typescript
@@ -111,6 +136,13 @@ type LearningCard = {
   title: string;
   purpose: string;
   operatingPrinciple: string;
+  subtype: string | null;
+  inputs: string[];
+  outputs: string[];
+  operationSteps: Array<{ title: string; explanation: string }>;
+  glossary: Array<{ term: string; definition: string }>;
+  diagramAssetId: string | null;
+  comprehensionQuestion: { question: string; answer: string };
   typicalComponents: Array<{
     name: string;
     function: string;
@@ -181,7 +213,7 @@ Start with one backend process and a bounded worker. Introduce a separate queue 
 | Capture | Camera, gallery upload, framing guidance |
 | Processing | Progress state, cancellation, retry |
 | Identification | Family, uncertainty, correction action |
-| Learning card | Explanation, typical components, concepts, sources |
+| Learning card | Immediate beginner overview, input/output flow, operation steps, expandable components, glossary, diagram, comprehension question, and sources |
 | Collection | Saved devices grouped by family |
 | Discovery detail | Saved result, notes, card revision |
 
@@ -208,7 +240,8 @@ Measure:
 | Abstention | Wrong confident answers versus appropriate uncertainty |
 | Robustness | Results by lighting, viewpoint, occlusion, and device variant |
 | Performance | End-to-end median and p95 latency; failure rate |
-| Content | Factual errors, unsupported specificity, source coverage |
+| Content | Factual errors, unsupported specificity, source coverage, correct handling of unknown subtypes |
+| Learning | Whether a beginner can explain the input/output, describe the main operating steps, and name a component’s role after reading |
 | Usability | Successful capture, correction, learning-card access, and saving |
 
 Proposed initial acceptance target: **at least 90% precision among accepted predictions for each supported family**, while separately reporting recall and the abstention rate. This is a target to validate, not current performance.
@@ -221,12 +254,16 @@ Do not hide poor coverage by reporting accuracy only on easy accepted examples.
 |---|---|
 | Head | Task dependencies, decisions, integration status |
 | Recognition | Model adapter, benchmark scripts, prediction artifacts |
-| Learning content | Five reviewed cards and supporting sources |
+| Learning content | Reviewed cards for supported product families, including television, with subtype boundaries and sources |
 | App/backend | Capture flow, API, persistence, collection |
 | Independent evaluation | Test manifests, audit findings, release report |
 
 Agents use the same class map and API schemas. Contract changes require updating the consumers before integration.
 
-**First implementation milestone:** one complete path from uploaded photo → identified device family → approved learning card → saved discovery, with reproducible evaluation and explicit uncertainty.
+**Current milestone:** execute the existing bounded recognition experiment, using the versioned five-class benchmark.
+
+**First learning-prototype milestone:** uploaded photo → identified or user-confirmed device family → approved beginner explanation. Include televisions through a coordinated class-map update. Saving a discovery is optional. Verify that beginners can explain the basic operation after using the card, alongside recognition quality.
+
+Recognition errors must be correctable before content selection. If no approved card exists, state that coverage is pending; do not fabricate a model-specific explanation.
 
 Model/provider selection, hosting costs, and device performance remain unverified; they are decisions for the baseline experiment.
