@@ -485,6 +485,18 @@ EVENTS_KEEPALIVE_SECONDS = 15.0
 STREAM_JPEG_QUALITY = 80
 
 
+def project_label(track: dict[str, Any]) -> str | None:
+    """The label the dashboard and iOS relay app expect: a project class (`labels/classes.json`) once Gemini
+    confirms the item, so their device lookups and green boxes keep working; Gemini's free-text name goes in
+    `name`. Classes outside the five fall back to the name. None while pending, "none" if not a device."""
+    label = track.get("label")
+    return label if label in (None, "none") else track["proposal"].get("project_class") or label
+
+
+def gemini_name(track: dict[str, Any]) -> str | None:
+    return None if track.get("label") in (None, "none") else track["label"]
+
+
 def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
     """The last finished detection, shaped like the frames the dashboard reads (see frontend/src/feed.js)."""
     frame_index = shown.get("seq", 0) - 1
@@ -498,11 +510,8 @@ def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
                 "box_xyxy_pixels": track["proposal"]["box_xyxy_pixels"],
                 "confidence": track["proposal"].get("confidence"),
             },
-            # The dashboard keys device data on the project class, so a confirmed item sends the detector's class
-            # (falling back to Gemini's name for classes outside the five); `name` is Gemini's free-text name.
-            "gemini_label": track.get("label") if track.get("label") in (None, "none")
-            else track["proposal"].get("project_class") or track["label"],
-            "name": None if track.get("label") in (None, "none") else track["label"],
+            "gemini_label": project_label(track),
+            "name": gemini_name(track),
             "hint": track.get("hint"),
             "label_source": None if track.get("label") is None
             else "gemini" if track.get("labelled_frame") == frame_index else "track_cache",
@@ -610,7 +619,7 @@ def make_relay_server(
             shown["frame"] = frame  # newest received frame for the laptop preview
             self.reply(200, {
                 "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
-                            "label": t["label"]} for t in shown["tracks"]],
+                            "label": project_label(t), "name": gemini_name(t)} for t in shown["tracks"]],
                 "image_size_hw_pixels": shown["image_size"],
             })
 

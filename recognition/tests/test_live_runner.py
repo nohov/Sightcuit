@@ -308,8 +308,9 @@ class RelayServerTests(unittest.TestCase):
 
     def setUp(self):
         self.latest = runner.LatestFrame()
-        self.shown = {"tracks": [{"track_id": 0, "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0]},
-                                  "label": "speaker"}], "image_size": [200, 300]}
+        self.shown = {"tracks": [{"track_id": 0, "label": "JBL speaker",
+                                  "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0], "project_class": "speaker"}}],
+                      "image_size": [200, 300]}
         self.server = runner.make_relay_server(("127.0.0.1", 0), "secret", self.latest, self.shown, lambda: True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -340,8 +341,10 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self.latest.frame.shape, (200, 300, 3))
         self.assertIs(self.shown["frame"], self.latest.frame)
+        # The iOS app colours a box green only when label is a project class, so the class goes in label.
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
-                                            "label": "speaker"}], "image_size_hw_pixels": [200, 300]})
+                                            "label": "speaker", "name": "JBL speaker"}],
+                                "image_size_hw_pixels": [200, 300]})
 
     def get(self, path):
         return urllib.request.urlopen(f"http://127.0.0.1:{self.server.server_address[1]}{path}", timeout=5)
