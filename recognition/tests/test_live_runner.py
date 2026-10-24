@@ -187,6 +187,7 @@ class RelayServerTests(unittest.TestCase):
         status, body = self.post(jpeg.tobytes())
         self.assertEqual(status, 200)
         self.assertEqual(self.latest.frame.shape, (200, 300, 3))
+        self.assertIs(self.shown["frame"], self.latest.frame)
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
                                             "label": "printer"}], "image_size_hw_pixels": [200, 300]})
 

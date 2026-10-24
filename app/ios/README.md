@@ -50,6 +50,9 @@ It prints `relay listening on 0.0.0.0:8765; token ...`. In the app, enter
 `<laptop-ip>:8765` and that token, tap "Connect glasses in Meta AI", then
 "Start streaming". Allow local-network access when iOS asks.
 
+The laptop opens a "scavscrap relay" window showing the newest glasses frame with
+the last finished boxes; press `q` in it to stop. Add `--no-display` to run headless.
+
 ## Privacy
 
 The glasses see whatever the wearer looks at, including bystanders. Frames with

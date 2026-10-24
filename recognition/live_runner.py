@@ -337,6 +337,7 @@ def make_relay_server(
             if frame is None:
                 return self.reply(400, {"error": "body is not a decodable image"})
             latest.put(frame)
+            shown["frame"] = frame  # newest received frame for the laptop preview
             self.reply(200, {
                 "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
                             "label": t["label"]} for t in shown["tracks"]],
@@ -349,10 +350,31 @@ def make_relay_server(
     return ThreadingHTTPServer(address, Handler)
 
 
-def serve_relay(host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
-    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C or the detector fails."""
+def show_relay_frames(shown: dict[str, Any], running: Callable[[], bool]) -> None:
+    """Show the newest relayed frame with the last finished boxes until q or the detector stops."""
+    last = None
+    while running():
+        frame = shown["frame"]
+        if frame is None:
+            time.sleep(0.03)  # no window yet, so waitKey would return at once
+            continue
+        if frame is not last:
+            last = frame
+            view = frame.copy()
+            draw_tracks(view, shown["tracks"])
+            cv2.imshow("scavscrap relay (q quits)", view)
+        if cv2.waitKey(30) & 0xFF == ord("q"):
+            break
+    cv2.destroyAllWindows()
+
+
+def serve_relay(
+    host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
+    display: bool = False,
+) -> None:
+    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails."""
     latest = LatestFrame()
-    shown: dict[str, Any] = {"tracks": [], "image_size": None}
+    shown: dict[str, Any] = {"tracks": [], "image_size": None, "frame": None}
     failure: list[BaseException] = []
 
     def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
@@ -371,9 +393,17 @@ def serve_relay(host: str, port: int, token: str, detect: Callable[[Iterable[Any
     worker.start()
     # Token goes to the terminal only, never the log file.
     print(f"relay listening on {host}:{server.server_address[1]}; token {token}", flush=True)
+    # macOS only allows OpenCV windows on the main thread, so the server moves off it when displaying.
+    server_thread = threading.Thread(target=server.serve_forever, name="relay-server")
     try:
-        server.serve_forever()
+        if display:
+            server_thread.start()
+            show_relay_frames(shown, worker.is_alive)
+        else:
+            server.serve_forever()
     finally:
+        if server_thread.is_alive():
+            server.shutdown()
         server.server_close()
         latest.stop()
         worker.join()
@@ -426,7 +456,7 @@ def main() -> None:
         if args.listen:
             host, _, port = args.listen.rpartition(":")
             # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
-            serve_relay(host, int(port), secrets.token_hex(16), detect)
+            serve_relay(host, int(port), secrets.token_hex(16), detect, display=not args.no_display)
         elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)
