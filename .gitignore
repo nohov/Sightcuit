@@ -1,6 +1,3 @@
 __pycache__/
 *.py[cod]
-.env
-.venv/
-# Ultralytics downloads (CLIP text encoder etc.)
-weights/
+/datasets/
