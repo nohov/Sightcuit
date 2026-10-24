@@ -1,3 +1,10 @@
 __pycache__/
 *.py[cod]
+.env
+.venv/
+# Ultralytics downloads (CLIP text encoder etc.)
+weights/
 /datasets/
+# Per-machine live camera logs and macOS folder metadata
+evaluation/live_predictions.jsonl*
+.DS_Store

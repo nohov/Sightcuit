@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "model_identifier": "Ultralytics YOLO-World v2 small, open-vocabulary text prompts (proposed local comparison)",
+  "weights_filename": "yolov8s-worldv2.pt",
+  "task": "object_detection",
+  "dataset": "open vocabulary; classes set from the five text prompts below",
+  "open_vocabulary": true,
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.7
+  },
+  "expected_builtin_classes": [
+    "laptop", "desktop computer tower", "computer monitor", "printer", "projector"
+  ],
+  "raw_to_project_mapping": {
+    "laptop": "laptop",
+    "desktop computer tower": "desktop_computer_tower",
+    "computer monitor": "monitor",
+    "printer": "printer",
+    "projector": "projector"
+  },
+  "target_support": {
+    "laptop": {
+      "status": "supported_exact",
+      "raw_class_names": ["laptop"],
+      "reason": "Text prompt chosen to name the project class."
+    },
+    "desktop_computer_tower": {
+      "status": "supported_exact",
+      "raw_class_names": ["desktop computer tower"],
+      "reason": "Text prompt chosen to name the project class."
+    },
+    "monitor": {
+      "status": "supported_exact",
+      "raw_class_names": ["computer monitor"],
+      "reason": "Prompt says computer monitor, not tv or display, to match labels/classes.json."
+    },
+    "printer": {
+      "status": "supported_exact",
+      "raw_class_names": ["printer"],
+      "reason": "Text prompt chosen to name the project class."
+    },
+    "projector": {
+      "status": "supported_exact",
+      "raw_class_names": ["projector"],
+      "reason": "Text prompt chosen to name the project class."
+    }
+  },
+  "sources": [
+    "https://docs.ultralytics.com/models/yolo-world/"
+  ]
+}

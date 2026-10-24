@@ -1,42 +1,57 @@
-# Handoff: YOLO26 electronics detector
+# Handoff: ScavScrap electronics detector, v3 (adds headphones, speaker, watch)
 
-For a new Claude Code session continuing this work on a Windows machine with an
-NVIDIA RTX 4070 Ti. Read this whole file before acting. Last updated 2026-10-24.
+For a new Claude Code session continuing this work on the Windows machine with
+the NVIDIA RTX 4070 Ti. Read this whole file before acting. Last updated 2026-10-24.
+
+## 0. TL;DR: what to do on this machine
+
+1. Pull the branch (section 2), set up the machine (section 3), and create
+   `.env` in the repo root with `GEMINI_API_KEY=...` (only needed for the live app).
+2. Get the 9 Roboflow zips from Google Drive (section 4).
+3. Rebuild the dataset from scratch with 14 classes (section 7, about 30-90 min).
+4. Train v3 (section 7, estimate 2.5-3.5 h for yolo11n).
+5. Check per-class scores, point the live app at v3, test it live, commit
+   `weights/scavscrap_v3_best.pt`, push (section 7.5).
 
 ## 1. What the project is
 
 ScavScrap ("Electronics Pokédex") is a hackathon app for engineering students:
-photograph tech items, the app finds each one, identifies it, and shows its specs
-from cited web sources. The pipeline (see `designspec.txt`, v0.7):
+point a camera at tech items, the app finds each one, identifies it, and shows
+its specs from cited web sources. The pipeline:
 
 ```text
-photo → stage 1 detect (YOLO26, trained here, local and fast)
-      → stage 2 identify (Gemini: brand + product line, e.g. "Apple MacBook Air")
-      → stage 3 specs (Gemini with web search grounding, every spec cites a URL)
+camera frame → stage 1 detect (YOLO, trained here, local, ~10 ms/frame)
+             → stage 2 identify (Gemini: brand + product family, e.g. "Apple MacBook")
+             → stage 3 specs (Gemini with web search grounding, every spec cites a URL)
 ```
 
-Exact model/SKU is out of scope: many items in one product line look the same.
-The detector only needs coarse categories. Fine distinctions (smartwatch vs
-analog watch, Bluetooth vs wired speaker, earbuds vs over-ear) are stage 2's job.
+Stage 1 and 2 already run live: `recognition/live_runner.py` (see section 6).
+Exact model/SKU is out of scope on purpose: MacBooks (and many product lines)
+look the same outside but differ inside, so Gemini names the family only. The
+detector only needs coarse categories; fine distinctions (smartwatch vs analog
+watch, Bluetooth vs wired speaker, earbuds vs over-ear) are Gemini's job.
 
-**Your job: stage 1.** Train a YOLO26 detector on tech-item classes.
+**Why v3:** the live test showed Gemini can name a smartwatch or earbuds
+correctly, but only if the detector draws a box. v2 has no accessory classes,
+so it boxed them as `phone` for 1-2 frames at 15-29% confidence. v3 teaches the
+detector `headphones`, `speaker` and `watch`.
 
-## 2. Repo state and what is stale
+## 2. Repo state
 
-- Work happens on branch `gursimar/yolo26-training` only. Commit and push there.
+- Branch: `gursimar/yolo26-training`. `git pull` it. Commit and push there.
   Never push to `main`.
-- `training/` is the active workspace: `scripts/build_dataset.py`, `README.md`,
-  `requirements.txt`, this file. `datasets/`, `weights/`, `runs/`, `*.pt` and
-  logs are gitignored on purpose.
-- **Stale, do not follow for training work:** `AGENTS.md`, `README.md`,
-  `READINESS.md`, `RUNBOOK.md`, `recognition/`, `evaluation/`. They describe an
-  earlier milestone (evaluating stock COCO YOLO11 on 5 classes) and forbid
-  installing packages, downloading weights and training. The project owner has
-  explicitly replaced that: installing, downloading datasets and training inside
-  `training/` is the task.
-- `designspec.txt` v0.7 still says stage 1 is a cheap hosted VLM (Qwen) and lists
-  only 5 classes + `other_electronics`. Both are out of date: stage 1 is now this
-  YOLO26 detector and the class list is below. Update the spec when convenient.
+- `training/` is the training workspace. `datasets/`, `runs/` and logs are
+  gitignored. Trained checkpoints are force-added on purpose
+  (`git add -f weights/scavscrap_vN_best.pt`) so other machines get them by pulling.
+- `recognition/live_runner.py` is the live camera app, already switched to the
+  trained detector and to free-text Gemini labels. Its tests:
+  `python -m unittest recognition.tests.test_live_runner` from the repo root.
+- **Stale, do not follow for training work:** `AGENTS.md`, `READINESS.md`, and
+  the evaluation parts of `README.md`/`RUNBOOK.md`. They describe an earlier
+  milestone (evaluating stock COCO YOLO11 on 5 classes) and forbid installing
+  packages, downloading weights and training. The owner has replaced that.
+- `.env` (holds `GEMINI_API_KEY`) is gitignored. Each machine needs its own copy
+  in the repo root; never commit it or paste the key into chat.
 
 ## 3. Machine setup (Windows, PowerShell, from `training\`)
 
@@ -56,18 +71,18 @@ py -3.13 -m venv .venv
 - Unzip with 7-Zip into a short path (e.g. `C:\scavscrap\`) if Explorer fails:
   Windows has a 260-character path limit.
 
-## 4. Inputs the owner uploads to Google Drive
+## 4. Inputs from Google Drive
 
-| File | Put it at | What it is |
+| File | Put it at | Needed for |
 |---|---|---|
-| `scavscrap.zip` (3.7 GB) | unzip to `training\datasets\scavscrap\` | merged, ready-to-train dataset |
-| `scavscrap_v1_best.pt` (5.5 MB) | `training\weights\` | checkpoint after 4 epochs |
-| Roboflow zips (~1.2 GB, optional) | `datasets\` at repo root | raw Roboflow exports, needed only to rebuild (section 7) |
+| Roboflow zips (~1.2 GB, 9 exports) | `datasets\` at repo root | **required**: the v3 rebuild re-imports them |
+| `scavscrap.zip` (3.7 GB) | not needed | old 11-class dataset; v3 rebuilds from source |
 
-`datasets\scavscrap\` must contain `data.yaml`, `train.txt`, `val.txt`,
-`images\`, `labels\`. The lists use `./images/...` paths relative to that folder.
+The 9 Roboflow exports and their class mappings are listed in section 5. If an
+export's mapping isn't written down anywhere, list the zip's `data.yaml`
+`names` and map them to our classes; drop anything that isn't one of ours.
 
-## 5. The current dataset (11 classes)
+## 5. The v2 dataset (11 classes; v3 adds 3, see section 7)
 
 `0 laptop, 1 desktop_computer_tower, 2 monitor, 3 printer, 4 projector,
 5 keyboard, 6 mouse, 7 phone, 8 tablet, 9 tv, 10 router`
@@ -112,77 +127,156 @@ Known label noise (accept it, or fix with more data):
   stream them and keep only matching images) are the best fix. The Hugging Face
   mirror `jxu124/objects365` has labels only, no images.
 
-## 6. Continue training
+## 6. Current model (v2) and the live app
 
-### v2 results (Windows, RTX 4070 Super, 21,185 images, yolo11n.pt base)
+v2: yolo11n, 11 classes, trained 49/50 epochs on a 4070 Super, 21,185 images,
+~2-3 min/epoch. mAP50 0.683, mAP50-95 0.504. File:
+`weights/scavscrap_v2_best.pt` (committed).
 
-Trained 49/50 epochs. Final checkpoint: `weights/scavscrap_v2_best.pt`.
+Live app, from the repo root. macOS:
 
-| Metric | Value |
-|---|---|
-| mAP50 | 0.683 |
-| mAP50-95 | 0.504 |
-| Box loss | 0.764 |
-| Class loss | 0.626 |
+```sh
+set -a; . ./.env; set +a
+training/.venv/bin/python -m recognition.live_runner evaluation/live_predictions.jsonl --allow-upload --camera 0 --device mps
+```
 
-~2–3 min/epoch on the 4070 Super. Strong improvement over v1 (0.38–0.40 mAP50 at epoch 4).
+Windows (PowerShell):
 
-To continue from v2:
+```powershell
+Get-Content .env | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }
+training\.venv\Scripts\python -m recognition.live_runner evaluation/live_predictions.jsonl --allow-upload --camera 0 --device 0
+```
+
+Press `q` in the window to quit. How it behaves (all in `recognition/live_runner.py`,
+prompt in `recognition/prompt-live-v2.txt`, tested in
+`recognition/tests/test_live_runner.py`):
+
+- Defaults: `training/weights/scavscrap_v2_best.pt` with
+  `recognition/scavscrap_v2_model.json` (the frozen class list the app checks
+  the weights against), detection threshold from that config (0.25), Gemini
+  `--thinking-level minimal`.
+- A box that lasts 5 frames (~0.2 s) is drawn at once in **yellow** with the
+  detector class (`#3 phone...`). When Gemini answers it turns **green** with
+  the name (`#3 Apple iPhone`). If Gemini says "none" (not a tech item, e.g. a
+  toothpaste tube the detector calls a phone at 84%), the box disappears.
+- Gemini gets the full frame plus a full-resolution close-up of each box, and
+  returns `label`, `identified` and `hint`. Labels are brand + product family
+  ("Apple iPhone"), never the exact model, because one family looks alike
+  outside but differs inside. If only a generic type is visible ("smartphone"),
+  it adds a hint (`move closer`, `improve lighting`, `hold still`,
+  `show the logo side`) and the box is re-asked every 10 s while in view.
+- Gemini runs off the detection thread, one call at a time. Measured: 6-26 s per
+  answer (Gemini 3.5 Flash-Lite, plus 4/8/16 s retries on frequent HTTP 503).
+- Tracking: a same-class box near a track's last position continues it, and a
+  track survives ~1.5 s unseen. Before this, a hand-held phone got 13 track IDs
+  in 76 s and Gemini answers landed on dead tracks.
+- Each frame is appended to `evaluation/live_predictions.jsonl` (gitignored);
+  analyse it to debug what was detected, sent and answered.
+
+## 7. Next task: build and train v3 (14 classes)
+
+### 7.1 Already done (on the Mac, 2026-10-24)
+
+`scripts/build_dataset.py` now has 14 classes. The new ones are appended so IDs
+0-10 are unchanged from v2: `11 headphones` (earbuds included), `12 speaker`,
+`13 watch` (smartwatches included). Source names were checked against the real
+annotation files:
+
+| Our class | Open Images | LVIS (`name`) | Objects365 |
+|---|---|---|---|
+| headphones | `Headphones` | `earphone`, `headset` | `Head Phone`, `earphone` |
+| speaker | none | `speaker_(stero_equipment)` (sic) | `Speaker` |
+| watch | `Watch` | `watch` | `Watch` |
+
+They are in `OPENIMAGES`, `LVIS`, `O365`, `LVIS_REQUIRED` and `O365_REQUIRED`.
+`selftest` passes. Not added (ask the owner first): `camera`, `game_controller`.
+
+### 7.2 Rebuild the dataset from scratch
+
+Do not add new images on top of the old dataset. The existing 21k images
+contain headphones, speakers and watches that are unlabeled; left that way, the
+model learns they are background. A full rebuild relabels every image.
+
+From `training\`:
+
+```powershell
+Remove-Item -Recurse -Force datasets\scavscrap   # stale 11-class labels must not survive
+.venv\Scripts\python scripts\build_dataset.py selftest
+.venv\Scripts\python scripts\build_dataset.py openimages   # FiftyOne download, the slow part
+.venv\Scripts\python scripts\build_dataset.py lvis
+.venv\Scripts\python scripts\build_dataset.py objects365   # Beijing server, may time out; it retries
+# then every Roboflow export from section 5, e.g.:
+.venv\Scripts\python scripts\build_dataset.py roboflow ..\datasets\<export>.zip "Their Name=our_class"
+.venv\Scripts\python scripts\build_dataset.py split        # writes train.txt, val.txt, data.yaml
+```
+
+Estimate: 30-90 min, mostly the Open Images download (keep `datasets\_raw\`
+afterwards; reruns reuse it). `split` prints boxes per class. **Check the three
+new classes.** Rough target: 1,000+ boxes each.
+
+- If `headphones` or `watch` are low: raise `openimages(max_samples=12000)`; the
+  12k cap is shared across all Open Images classes.
+- `speaker` will be the weakest (Open Images has no speaker class). Top it up
+  from Roboflow (7.3).
+
+### 7.3 Optional: Roboflow top-ups for weak classes
+
+Only if a class is under ~1,000 boxes after 7.2, or scores poorly after
+training. Download each as a **YOLOv8** zip (free Roboflow account), check its
+`data.yaml` names, import before `split`:
+
+| Set | Map to | Notes |
+|---|---|---|
+| https://universe.roboflow.com/aihat/headphones-moskk | headphones | ~1,070 images |
+| https://universe.roboflow.com/project-qysdi/earbuds-vepar | headphones | earbuds |
+| https://universe.roboflow.com/bag-bibi4/earphone-jueif | headphones | ~143 images |
+| https://universe.roboflow.com/abirami-j/gadget_detection_exam | watch (smartwatch class only) | drop its other classes |
+| https://universe.roboflow.com/annotations-1grak | speaker, watch | ~56 images, small |
+
+Prefer exports without heavy augmentation. Image counts are from the listing
+pages, not verified.
+
+### 7.4 Train v3
+
+Start from v2 so the 11 known classes keep what they learned. Ultralytics
+reinitializes only the class head for the new class count.
 
 ```powershell
 .venv\Scripts\yolo detect train data=datasets/scavscrap/data.yaml model=weights/scavscrap_v2_best.pt epochs=50 patience=10 imgsz=640 batch=32 workers=8 device=0 name=scavscrap_v3
 ```
 
-To train a larger model (yolo11s for ~3x more accuracy at ~3x compute):
+Time estimate (not measured on a 4070 Ti; scaled from v2's 2-3 min/epoch for
+21k images on a 4070 Super, which is about the same speed): with ~28-32k images,
+~3-4 min/epoch, **~2.5-3.5 h** for 50 epochs, less if `patience` stops it early.
+yolo11s (`model=yolo11s.pt batch=16`) is more accurate, ~5-8 h.
 
-```powershell
-.venv\Scripts\yolo detect train data=datasets/scavscrap/data.yaml model=yolo11s.pt epochs=50 patience=10 imgsz=640 batch=16 workers=8 device=0 name=scavscrap_v2s
-```
+### 7.5 After training
 
-- `runs\detect\<name>\weights\best.pt` updates every epoch, so it is usable
-  mid-run. Check per-class results with
-  `yolo detect val data=datasets/scavscrap/data.yaml model=runs/detect/<name>/weights/best.pt device=0`.
-- Only load `.pt` files we trained or official Ultralytics ones. `.pt` files can
-  execute code when loaded.
+1. Per-class check:
+   `.venv\Scripts\yolo detect val data=datasets/scavscrap/data.yaml model=runs/detect/scavscrap_v3/weights/best.pt device=0`
+   Write mAP50 overall and for headphones/speaker/watch into this file.
+2. `copy runs\detect\scavscrap_v3\weights\best.pt weights\scavscrap_v3_best.pt`
+   then `git add -f weights/scavscrap_v3_best.pt`.
+3. Point the live app at v3: copy `recognition/scavscrap_v2_model.json` to
+   `recognition/scavscrap_v3_model.json`, set `weights_filename` to
+   `scavscrap_v3_best.pt`, append `"headphones", "speaker", "watch"` to
+   `expected_builtin_classes`, update `model_identifier`. Change the two
+   defaults in `recognition/live_runner.py` `main()` (`--weights`, `--config`)
+   to v3. Run the live runner tests.
+4. Live check: run the live app (section 6) and hold up headphones, earbuds,
+   a smartwatch and a Bluetooth speaker. Each should get a yellow box within
+   ~0.2 s labelled with its new class, then a green Gemini name. Note any that
+   never get a box.
+5. Commit and push to `gursimar/yolo26-training`.
 
-## 7. Next task: add headphones, speakers, watches (and similar)
+### 7.6 Later, if non-tech items keep getting boxes
 
-The owner wants more item types: headphones, Bluetooth speakers, smartwatches,
-"etc." Recommended plan (confirm with the owner before step 3):
-
-1. **Use coarse classes and append them to the end of `CLASSES`** so existing
-   IDs 0–10 stay stable: `headphones` (includes earbuds), `speaker` (any
-   speaker), `watch` (any wristwatch, including smartwatches). Candidates if the
-   owner says "etc." covers them: `camera`, `game_controller`. Stage 2 (Gemini)
-   decides Bluetooth vs wired, smart vs analog.
-2. **Map them from the big sources.** These exact names were verified in the
-   annotation files (two are misspelled upstream):
-
-   | Our class | Open Images | LVIS (`name`) | Objects365 |
-   |---|---|---|---|
-   | headphones | `Headphones` | `earphone` | `Head Phone`, `earphone` |
-   | speaker | none | `speaker_(stero_equipment)` | `Speaker` |
-   | watch | `Watch` | `watch` | `Watch` |
-   | camera | `Camera` | `camera` | `Camera` |
-
-   Add them to the `OPENIMAGES`, `LVIS` and `O365` dicts, and to
-   `LVIS_REQUIRED` and `O365_REQUIRED` so images containing them are pulled.
-3. **Rebuild from the sources. Do not just add new images on top.** The existing
-   21k images contain headphones, speakers and watches that are unlabeled. If
-   they stay unlabeled, the model learns those items are background. The
-   annotations exist in Open Images, LVIS and Objects365, but the current zip
-   kept only our 11 classes. So rerun the whole build on this machine. It
-   re-downloads about 10 GB; see the `training/README.md` "Build" section:
-   `selftest`, `openimages`, `lvis`, `objects365`, every `roboflow` import, then
-   `split`. Delete `datasets\scavscrap\` first so stale label files can't
-   survive.
-4. **Top up from Roboflow Universe** with smartwatch, Bluetooth speaker and
-   earbuds sets (search universe.roboflow.com). Check each export's class names
-   with the zip check in section 8, map them, and prefer exports without heavy
-   augmentation.
-5. Update `selftest` for any new logic, retrain from `scavscrap_v1_best.pt`
-   (the classification head reinitializes for the new class count, which is
-   fine), and update `designspec.txt` with the final class list.
+The detector has never been shown "nothing here", so phone-shaped objects
+(toothpaste, a fork) become `phone`. YOLO learns this from background images:
+photos with an empty label file. `build_dataset.py` currently skips images with
+no boxes. Adding ~5-10% background images (e.g. Open Images photos of kitchen,
+bathroom and desk objects with none of our classes) would cut these false boxes.
+Gemini already hides them, so this only matters if the yellow boxes annoy.
 
 ## 8. Gotchas
 

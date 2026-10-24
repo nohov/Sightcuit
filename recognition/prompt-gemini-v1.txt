@@ -1,0 +1,10 @@
+Detect every visible instance of these five electronics classes in the image. Return a JSON list with one entry per instance. Each entry has "label" and "box_2d", where box_2d is [ymin, xmin, ymax, xmax] normalized to 0-1000 and tightly encloses the whole visible device.
+
+Labels:
+- laptop: a portable computer with a screen and permanently attached hinged keyboard base visible as one device
+- desktop_computer_tower: a standalone desktop computer chassis that houses the primary computing components and is separate from its display
+- monitor: a standalone electronic display intended primarily as a computer or external display, excluding integrated all-in-one computers
+- printer: a device whose functions include producing physical printed output, including multifunction printer-scanner-copiers
+- projector: a digital video or data projector designed to cast an image onto a separate viewing surface
+
+Use only visible evidence. Do not label televisions, all-in-one computers, detachable-keyboard tablets, empty computer cases, 3D printers, projector screens, cameras, overhead projectors, or slide projectors. If no instance of the five labels is visible, return an empty list. Do not guess when a device cannot be resolved to one label.

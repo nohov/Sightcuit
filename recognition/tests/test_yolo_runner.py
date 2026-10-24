@@ -4,8 +4,11 @@ import csv
 import copy
 import json
 from pathlib import Path
+import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 from recognition import yolo_runner
 
@@ -110,6 +113,27 @@ class YoloRunnerTests(unittest.TestCase):
         config["target_support"]["monitor"]["raw_class_names"] = ["tv"]
         with self.assertRaisesRegex(ValueError, "unsupported target"):
             yolo_runner.validate_config(config)
+
+    def test_open_vocabulary_config_sets_prompts_as_classes(self):
+        world = yolo_runner.load_config(yolo_runner.HERE / "yolo_world_model.json")
+        self.assertEqual(set(world["raw_to_project_mapping"].values()), yolo_runner.TARGET_CLASSES)
+
+        class FakeWorldModel:
+            def __init__(self, path, task):
+                self.names = {0: "person"}
+
+            def set_classes(self, prompts):
+                self.names = dict(enumerate(prompts))
+
+        fake_module = types.SimpleNamespace(YOLO=FakeWorldModel)
+        with tempfile.TemporaryDirectory() as directory:
+            weights = Path(directory) / world["weights_filename"]
+            weights.write_bytes(b"fake weights")
+            with mock.patch.dict(sys.modules, {"ultralytics": fake_module}), \
+                    mock.patch.object(yolo_runner, "version", lambda _: "test-only"):
+                predictor = yolo_runner.UltralyticsPredictor(weights, world)
+
+        self.assertEqual(list(predictor.model.names.values()), world["expected_builtin_classes"])
 
     def test_class_name_must_match_frozen_model_list(self):
         with self.assertRaisesRegex(ValueError, "class name"):

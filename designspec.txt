@@ -146,14 +146,14 @@ Report:
 
 Preserve representative errors and raw responses.
 
-## Later comparisons
+## Comparison, not default
 
 YOLO remains a possible stage-1 replacement if the app needs live video boxes,
 tracking or offline use; its COCO weights cover only `laptop` from the initial
 set, so it would need fine-tuning first. A local Qwen-VL through Ollama remains
 an offline alternative for stage 1.
 
-## Privacy and cost controls
+## Gemini vs YOLO bake-off
 
 - Tell participants that photos are sent to the configured vision providers and
   that item identities are sent to a web search tool.
