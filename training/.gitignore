@@ -1,0 +1,9 @@
+.venv/
+datasets/
+weights/
+runs/
+*.pt
+!weights/
+!weights/scavscrap_v2_best.pt
+.fiftyone/
+*.log

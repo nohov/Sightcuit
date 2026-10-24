@@ -101,23 +101,38 @@ whole-image VLM comparison.)
 
 ## 5. Live camera
 
-The cascade runs on every frame. Boxes are matched to in-memory tracks by IoU,
-and Gemini labels only tracks without a cached label, at most once per
-`--min-call-interval` (default 2 s). Frames with new tracks are uploaded, so
-`--allow-upload` is required. Press `q` to quit.
+The trained detector (`training/weights/scavscrap_v2_best.pt` with
+`recognition/scavscrap_v2_model.json`, both the defaults) runs on every frame.
+A box that lasts 5 frames shows at once in yellow with the detector class.
+Gemini then names it in free text from `recognition/prompt-live-v2.txt`: brand
+and product family when a logo or family-unique design is visible ("Apple
+iPhone"), never an exact model, else a generic type ("smartphone") plus a hint
+("move closer", "improve lighting", "hold still", "show the logo side"). Gemini
+sees the full frame and a full-resolution close-up of each box, runs off the
+detection thread, and re-asks generic labels every 10 s. The box turns green
+with the name, or disappears if Gemini says "none". Frames with new tracks are
+uploaded, so `--allow-upload` is required. Press `q` to quit.
 
 ```sh
+set -a; . ./.env; set +a
 python -m recognition.live_runner evaluation/live_predictions.jsonl \
-  --weights /absolute/path/to/yolov8l-worldv2.pt --allow-upload --camera 0
+  --allow-upload --camera 0 --device mps
 ```
 
-Detection runs in a background thread on the newest frame, so boxes trail a
-moving device by up to one inference. Each JSONL line is one detected frame.
-`label_source` is `gemini` on the labelling frame and `track_cache` afterwards:
-cached labels are not fresh per-frame inference.
+Each named box also gets a 2-3 sentence description (`recognition/narrator.py`,
+prompt `recognition/prompt-describe-v1.txt`, cached in `cache/narration/`). The
+label shows `[click]` when it is ready; clicking the box shows it in a panel.
+With `ELEVENLABS_API_KEY` set, the click also plays it as audio.
+
+Each JSONL line is one detected frame. `label_source` is `gemini` on the
+labelling frame and `track_cache` afterwards: cached labels are not fresh
+per-frame inference. Tracks continue across small jumps of the same detector
+class, so a moved item keeps its label.
 
 For Meta glasses, replace `--camera 0` with `--listen 0.0.0.0:8765`. Setup is in
-`app/ios/README.md`.
+`app/ios/README.md`. The dashboard gets `gemini_label` as the project class
+(`laptop`, `phone`, ...) once Gemini confirms the item, plus `name` with
+Gemini's free-text name.
 
 ## Checks
 

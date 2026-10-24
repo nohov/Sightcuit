@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
+import base64
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
+from contextlib import closing, contextmanager
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -15,6 +17,8 @@ from pathlib import Path
 import platform
 import re
 import secrets
+import sys
+import textwrap
 import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
@@ -24,10 +28,12 @@ import cv2
 import numpy as np
 
 from recognition.cascade_runner import (
-    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, LABELS, MAX_PROPOSALS, PROMPT_VERSION,
-    RESPONSE_SCHEMA, parse_labels, region_text,
+    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, region_text,
 )
 from recognition.gemini_runner import API_VERSION, Transport, build_payload, gemini_transport, response_text
+from recognition.narrator import (
+    DEFAULT_TTS_MODEL, DEFAULT_VOICE, PROMPT_VERSION as DESCRIBE_VERSION, Narrator, elevenlabs_speak, gemini_describe,
+)
 from recognition.runio import start_logging
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
 
@@ -41,11 +47,42 @@ TRACK_IOU = 0.3
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
 PART_MIN_AREA = 0.2
-MAX_MISSED = 15
+# A track survives this many frames (~1.5 s at 30 fps) without a box; turning a phone over loses it for 1-2 s.
+MAX_MISSED = 45
+# A same-class box whose centre is within this many old-box diagonals continues the track even with little
+# overlap: a hand-held phone moved between frames got 13 track IDs in 76 s, so 20 s Gemini answers always
+# landed on a dead track.
+# shortcut: can swap two same-class items held close together; add appearance matching if that matters.
+TRACK_JUMP = 1.0
+# A box must be seen this many frames before it is drawn or sent to Gemini: one-frame flickers (a fork read as a
+# phone at 10%) otherwise used most Gemini calls, and each call blocks the next for ~7-15 s.
+MIN_TRACK_FRAMES = 5
 # On 504x896 glasses frames, boxes under 32 px on their short side were mostly false smartwatches that Gemini
 # confirmed anyway (5 of 8), and only 2 of 216 phone hits; too few pixels to judge.
 DEFAULT_MIN_BOX_SIDE = 32.0
 DEFAULT_MIN_CALL_INTERVAL = 2.0
+# A generic label ("smartphone") is re-asked this often while the item stays in view, so following the hint
+# (move closer, show the logo side) can upgrade it to a brand and product family.
+REASK_INTERVAL = 10.0
+# Each close-up adds this fraction of the box on every side, so edges like a camera bump stay in the crop.
+CROP_PAD = 0.15
+MAX_LABEL_CHARS = 60
+# Live labels are free text (brand + product family, or a generic type), not the five scored classes.
+PROMPT_VERSION = "live-v2"
+HINTS = ("ok", "move closer", "improve lighting", "hold still", "show the logo side")
+RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "index": {"type": "INTEGER"},
+            "label": {"type": "STRING"},
+            "identified": {"type": "BOOLEAN"},
+            "hint": {"type": "STRING", "enum": list(HINTS)},
+        },
+        "required": ["index", "label", "identified", "hint"],
+    },
+}
 
 
 def box_area(box: list[float]) -> float:
@@ -62,12 +99,74 @@ def box_iou(a: list[float], b: list[float]) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def centre_distance(a: list[float], b: list[float]) -> float:
+    return math.dist(((a[0] + a[2]) / 2, (a[1] + a[3]) / 2), ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+
+
+def continues(proposal: dict[str, Any], old: dict[str, Any]) -> bool:
+    box, old_box = proposal["box_xyxy_pixels"], old["box_xyxy_pixels"]
+    return box_iou(box, old_box) >= TRACK_IOU or (
+        proposal["raw_class_name"] == old["raw_class_name"]
+        and centre_distance(box, old_box) <= TRACK_JUMP * math.dist(old_box[:2], old_box[2:]))
+
+
 def is_duplicate(proposal: dict[str, Any], other: dict[str, Any]) -> bool:
     box, other_box = proposal["box_xyxy_pixels"], other["box_xyxy_pixels"]
     return (box_iou(box, other_box) >= DUPLICATE_IOU
             or (proposal["raw_class_name"] == other["raw_class_name"]
                 and intersection(box, other_box) >= CONTAINED_FRACTION * box_area(box)
                 and box_area(box) >= PART_MIN_AREA * box_area(other_box)))
+
+
+@contextmanager
+def _shutdown_on_exit(pool: Executor, owned: bool) -> Iterator[None]:
+    try:
+        yield
+    finally:
+        if owned:
+            # Quitting must not wait out a slow Gemini call; its late answer is simply dropped.
+            pool.shutdown(wait=False, cancel_futures=True)
+
+
+def parse_answers(raw: Any, count: int) -> list[dict[str, Any]]:
+    """Require exactly one valid {label, identified, hint} per proposal index; hint "ok" becomes None."""
+    if not isinstance(raw, list):
+        raise ValueError("response must be a JSON list")
+    answers: dict[int, dict[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict) or set(item) != {"index", "label", "identified", "hint"}:
+            raise ValueError("each entry must contain only index, label, identified and hint")
+        index, label = item["index"], item["label"]
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < count:
+            raise ValueError(f"invalid region index {index!r}")
+        if index in answers:
+            raise ValueError(f"region {index} labelled twice")
+        if not isinstance(label, str) or not 0 < len(label.strip()) <= MAX_LABEL_CHARS:
+            raise ValueError(f"region {index} has invalid label {label!r}")
+        if not isinstance(item["identified"], bool) or item["hint"] not in HINTS:
+            raise ValueError(f"region {index} has invalid identified or hint")
+        answers[index] = {"label": label.strip(), "identified": item["identified"],
+                          "hint": None if item["hint"] == "ok" else item["hint"]}
+    if len(answers) != count:
+        raise ValueError(f"expected {count} labels, received {len(answers)}")
+    return [answers[index] for index in range(count)]
+
+
+def crop_parts(frame: Any, proposals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A padded full-resolution close-up per region, as Gemini request parts after the full frame."""
+    height, width = frame.shape[:2]
+    parts = []
+    for index, proposal in enumerate(proposals):
+        x1, y1, x2, y2 = proposal["box_xyxy_pixels"]
+        pad_x, pad_y = (x2 - x1) * CROP_PAD, (y2 - y1) * CROP_PAD
+        crop = frame[int(max(0, y1 - pad_y)):int(min(height, y2 + pad_y)),
+                     int(max(0, x1 - pad_x)):int(min(width, x2 + pad_x))]
+        encoded, jpeg = cv2.imencode(".jpg", crop)
+        if not encoded:
+            raise RuntimeError("could not JPEG-encode region close-up")
+        parts += [{"text": f"Close-up of region {index}:"},
+                  {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpeg.tobytes()).decode("ascii")}}]
+    return parts
 
 
 class TrackCache:
@@ -84,18 +183,22 @@ class TrackCache:
         suppressed = []
         for proposal in sorted(proposals, key=lambda p: -p["confidence"]):
             box = proposal["box_xyxy_pixels"]
-            best = max(unmatched, default=None,
-                       key=lambda i: box_iou(box, self.tracks[i]["proposal"]["box_xyxy_pixels"]))
-            if best is not None and box_iou(box, self.tracks[best]["proposal"]["box_xyxy_pixels"]) >= TRACK_IOU:
+            candidates = [i for i in unmatched if continues(proposal, self.tracks[i]["proposal"])]
+            best = max(candidates, default=None, key=lambda i: (
+                box_iou(box, self.tracks[i]["proposal"]["box_xyxy_pixels"]),
+                -centre_distance(box, self.tracks[i]["proposal"]["box_xyxy_pixels"])))
+            if best is not None:
                 unmatched.discard(best)
                 track = self.tracks[best]
             elif any(is_duplicate(proposal, t["proposal"]) for t in current):
                 suppressed.append(proposal)
                 continue
             else:
-                track = self.tracks[self.next_id] = {"track_id": self.next_id, "label": None, "labelled_frame": None}
+                track = self.tracks[self.next_id] = {"track_id": self.next_id, "label": None, "labelled_frame": None,
+                                                     "identified": False, "hint": None, "asked_at": -math.inf,
+                                                     "seen": 0}
                 self.next_id += 1
-            track.update(proposal=proposal, missed=0)
+            track.update(proposal=proposal, missed=0, seen=track["seen"] + 1)
             current.append(track)
         for track_id in unmatched:
             self.tracks[track_id]["missed"] += 1
@@ -120,6 +223,9 @@ def run_live(
     clock: Callable[[], float] = time.monotonic,
     show: Callable[[Any, list[dict[str, Any]]], bool] | None = None,
     thinking_level: str | None = None,
+    executor: Executor | None = None,
+    min_track_frames: int = MIN_TRACK_FRAMES,
+    reask_interval: float = REASK_INTERVAL,
     min_box_side: float = DEFAULT_MIN_BOX_SIDE,
 ) -> None:
     iou = config["thresholds"]["iou"] if iou is None else iou
@@ -127,12 +233,14 @@ def run_live(
         raise ValueError("confidence and IoU thresholds must be between 0 and 1")
     if min_box_side < 0:
         raise ValueError("minimum box side must not be negative")
-    template = (HERE / "prompt-cascade-v2.txt").read_text(encoding="utf-8")
+    template = (HERE / "prompt-live-v2.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
+    in_flight: tuple[Future, list[dict[str, Any]]] | None = None
+    pool = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="gemini")
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    with output.open("a", encoding="utf-8") as destination:
+    with output.open("a", encoding="utf-8") as destination, _shutdown_on_exit(pool, executor is None):
         for frame_index, frame in enumerate(frames):
             started = time.perf_counter()
             tracks: list[dict[str, Any]] = []
@@ -154,22 +262,31 @@ def run_live(
                     x1, y1, x2, y2 = proposal["box_xyxy_pixels"]
                     (too_small if min(x2 - x1, y2 - y1) < min_box_side else proposals).append(proposal)
                 tracks, suppressed = cache.update(sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS])
-                pending = [track for track in tracks if track["label"] is None]
-                # Only unlabelled tracks go to Gemini; cached labels cost no API call.
-                if pending and clock() - last_call >= min_call_interval:
-                    last_call = clock()
+                now = clock()
+                # Unlabelled tracks, and generic labels due a retry, go to Gemini; other cached labels cost no call.
+                pending = [track for track in tracks if track["seen"] >= min_track_frames and (
+                    track["label"] is None or (track["label"] != "none" and not track["identified"]
+                                               and now - track["asked_at"] >= reask_interval))]
+                if in_flight is None and pending and now - last_call >= min_call_interval:
+                    last_call = now
                     encoded, jpeg = cv2.imencode(".jpg", frame)
                     if not encoded:
                         raise RuntimeError("could not JPEG-encode camera frame")
-                    prompt = template.replace("{regions}", region_text([t["proposal"] for t in pending], size))
+                    proposals = [t["proposal"] for t in pending]
+                    prompt = template.replace("{regions}", region_text(proposals, size))
                     api_called = True
-                    response = transport(
-                        build_payload(jpeg.tobytes(), "image/jpeg", prompt, thinking_level, RESPONSE_SCHEMA),
-                        model, timeout,
-                    )
+                    payload = build_payload(jpeg.tobytes(), "image/jpeg", prompt, thinking_level, RESPONSE_SCHEMA)
+                    payload["contents"][0]["parts"] += crop_parts(frame, proposals)
+                    for track in pending:
+                        track["asked_at"] = now
+                    in_flight = (pool.submit(transport, payload, model, timeout), pending)
+                # Gemini runs off the detection thread, so boxes keep updating; labels land on the frame it finishes.
+                if in_flight is not None and in_flight[0].done():
+                    (future, sent), in_flight = in_flight, None
+                    response = future.result()
                     raw_response = response_text(response)
-                    for track, label in zip(pending, parse_labels(json.loads(raw_response), len(pending))):
-                        track["label"], track["labelled_frame"] = label, frame_index
+                    for track, answer in zip(sent, parse_answers(json.loads(raw_response), len(sent))):
+                        track.update(answer, labelled_frame=frame_index)
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
                 logging.exception("Live frame failed frame=%d", frame_index)
@@ -178,6 +295,8 @@ def run_live(
                 "track_id": track["track_id"],
                 "proposal": track["proposal"],
                 "gemini_label": track["label"],
+                "identified": track["identified"],
+                "hint": track["hint"],
                 "labelled_frame": track["labelled_frame"],
                 "label_source": None if track["label"] is None
                 else "gemini" if track["labelled_frame"] == frame_index else "track_cache",
@@ -211,14 +330,17 @@ def run_live(
                 "raw_response": raw_response,
                 "detections": [{
                     "track_id": entry["track_id"],
-                    "raw_class_id": LABELS.index(entry["gemini_label"]),
-                    "raw_class_name": entry["gemini_label"],
+                    "label": entry["gemini_label"],
+                    "raw_class_id": entry["proposal"]["raw_class_id"],
+                    "raw_class_name": entry["proposal"]["raw_class_name"],
                     "confidence": None,
                     "box_xyxy_pixels": entry["proposal"]["box_xyxy_pixels"],
-                    "project_class": entry["gemini_label"],
-                    "mapping_status": "mapped",
+                    "project_class": entry["proposal"]["project_class"],
+                    "mapping_status": entry["proposal"]["mapping_status"],
                     "label_source": entry["label_source"],
-                } for entry in entries if entry["gemini_label"] in LABELS],
+                    "identified": entry["identified"],
+                    "hint": entry["hint"],
+                } for entry in entries if entry["gemini_label"] not in (None, "none")],
                 "error": error,
             }
             destination.write(json.dumps(record, separators=(",", ":")) + "\n")
@@ -269,20 +391,56 @@ class LatestFrame:
             yield frame
 
 
-def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
+def visible(track: dict[str, Any]) -> bool:
+    # The detector calls toothpaste or a fork "phone" at up to 84%, so "none" and one-frame flickers stay hidden.
+    return track["label"] != "none" and track["seen"] >= MIN_TRACK_FRAMES
+
+
+def track_at(tracks: list[dict[str, Any]], x: float, y: float) -> dict[str, Any] | None:
+    """The smallest named box under a click, so a phone in front of a laptop wins over the laptop."""
+    hits = [t for t in tracks if visible(t) and t["label"] is not None
+            and t["proposal"]["box_xyxy_pixels"][0] <= x <= t["proposal"]["box_xyxy_pixels"][2]
+            and t["proposal"]["box_xyxy_pixels"][1] <= y <= t["proposal"]["box_xyxy_pixels"][3]]
+    return min(hits, key=lambda t: box_area(t["proposal"]["box_xyxy_pixels"]), default=None)
+
+
+def draw_tracks(frame: Any, tracks: list[dict[str, Any]], playable: Callable[[str], bool] = lambda label: False) -> None:
+    """Detector class in yellow at once, Gemini's name in green when it lands; Gemini "none" hides the box."""
     for track in tracks:
+        if not visible(track):
+            continue
+        if track["label"] is None:
+            text, color = f"#{track['track_id']} {track['proposal']['raw_class_name']}...", (0, 220, 255)
+        else:
+            hint = f" - {track['hint']}" if track["hint"] else ""
+            more = " [click]" if playable(track["label"]) else ""
+            text, color = f"#{track['track_id']} {track['label']}{hint}{more}", (0, 200, 0)
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
-        label = track["label"] or "..."
-        color = (128, 128, 128) if label in ("none", "...") else (0, 200, 0)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(frame, f"#{track['track_id']} {label}", (x1, max(y1 - 6, 12)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.putText(frame, text, (x1, max(y1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
-def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
+WINDOW = "scavscrap live (click a box for its description, q quits)"
+
+
+def draw_description(frame: Any, title: str, text: str) -> None:
+    """Title and wrapped text on a dark panel along the bottom of the frame."""
+    scale, line_height = 0.6, 24
+    lines = [title, *textwrap.wrap(text, width=max(20, frame.shape[1] // 11))]
+    top = frame.shape[0] - line_height * len(lines) - 12
+    cv2.rectangle(frame, (0, top), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
+    for index, line in enumerate(lines):
+        cv2.putText(frame, line, (10, top + line_height * (index + 1)), cv2.FONT_HERSHEY_SIMPLEX, scale,
+                    (0, 200, 0) if index == 0 else (255, 255, 255), 1, cv2.LINE_AA)
+
+
+def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
+                     narrator: Narrator | None = None) -> None:
     """Show every camera frame at camera speed while detection runs on the newest frame in a worker thread.
 
     Boxes are the last finished detection, so they trail a moving device by up to one inference.
+    With a narrator, every named box gets a description made in the background; clicking the box shows it (and
+    plays it when audio is on); clicking elsewhere hides it.
     """
     latest = LatestFrame()
     shown: dict[str, list[dict[str, Any]]] = {"tracks": []}
@@ -298,6 +456,19 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
         except BaseException as exc:
             failure.append(exc)
 
+    selected: dict[str, str | None] = {"label": None}
+
+    def on_mouse(event: int, x: int, y: int, *_: Any) -> None:
+        if not narrator or event != cv2.EVENT_LBUTTONDOWN:
+            return
+        track = track_at(shown["tracks"], x, y)
+        selected["label"] = track and track["label"]
+        if track:
+            logging.info("Click track=%d label=%r description=%s", track["track_id"], track["label"],
+                         narrator.click(track["label"]))
+
+    cv2.namedWindow(WINDOW)
+    cv2.setMouseCallback(WINDOW, on_mouse)
     worker = threading.Thread(target=work, name="live-detector")
     with closing(camera_frames(camera)) as frames:
         worker.start()
@@ -306,13 +477,20 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
                 if not worker.is_alive():
                     break
                 latest.put(frame.copy())
-                draw_tracks(frame, shown["tracks"])
-                cv2.imshow("scavscrap live (q quits)", frame)
+                if narrator:
+                    for track in shown["tracks"]:
+                        if visible(track) and track["label"] is not None:
+                            narrator.prepare(track["label"])
+                draw_tracks(frame, shown["tracks"], narrator.ready if narrator else lambda label: False)
+                if narrator and selected["label"]:
+                    draw_description(frame, selected["label"],
+                                     narrator.description(selected["label"]) or "Writing a description...")
+                cv2.imshow(WINDOW, frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
         finally:
             latest.stop()
-            worker.join()  # may wait for an in-flight inference or Gemini call to finish
+            worker.join()  # may wait for an in-flight inference to finish
     if failure:
         raise failure[0]
 
@@ -321,6 +499,18 @@ MAX_RELAY_FRAME_BYTES = 5 * 1024 * 1024
 STREAM_POLL_SECONDS = 0.03
 EVENTS_KEEPALIVE_SECONDS = 15.0
 STREAM_JPEG_QUALITY = 80
+
+
+def project_label(track: dict[str, Any]) -> str | None:
+    """The label the dashboard and iOS relay app expect: a project class (`labels/classes.json`) once Gemini
+    confirms the item, so their device lookups and green boxes keep working; Gemini's free-text name goes in
+    `name`. Classes outside the five fall back to the name. None while pending, "none" if not a device."""
+    label = track.get("label")
+    return label if label in (None, "none") else track["proposal"].get("project_class") or label
+
+
+def gemini_name(track: dict[str, Any]) -> str | None:
+    return None if track.get("label") in (None, "none") else track["label"]
 
 
 def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
@@ -336,7 +526,9 @@ def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
                 "box_xyxy_pixels": track["proposal"]["box_xyxy_pixels"],
                 "confidence": track["proposal"].get("confidence"),
             },
-            "gemini_label": track.get("label"),
+            "gemini_label": project_label(track),
+            "name": gemini_name(track),
+            "hint": track.get("hint"),
             "label_source": None if track.get("label") is None
             else "gemini" if track.get("labelled_frame") == frame_index else "track_cache",
         } for track in shown.get("tracks", [])],
@@ -443,7 +635,7 @@ def make_relay_server(
             shown["frame"] = frame  # newest received frame for the laptop preview
             self.reply(200, {
                 "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
-                            "label": t["label"]} for t in shown["tracks"]],
+                            "label": project_label(t), "name": gemini_name(t)} for t in shown["tracks"]],
                 "image_size_hw_pixels": shown["image_size"],
             })
 
@@ -520,24 +712,29 @@ def serve_relay(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="per-frame JSONL output (appended)")
-    parser.add_argument("--weights", required=True, type=Path, help="existing local YOLO-World weights")
+    parser.add_argument("--weights", type=Path, default=HERE.parent / "training/weights/scavscrap_v2_best.pt",
+                        help="existing local YOLO weights")
     parser.add_argument("--allow-upload", action="store_true",
                         help="confirm camera frames may be uploaded to Google")
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--listen", metavar="HOST:PORT",
                         help="take frames from the iOS glasses relay over HTTP instead of --camera")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--config", type=Path, default=HERE / "scavscrap_v2_model.json")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
-    parser.add_argument("--proposal-confidence", type=float, default=DEFAULT_PROPOSAL_CONFIDENCE)
+    parser.add_argument("--proposal-confidence", type=float,
+                        help="default: the config's confidence threshold (0.25 for the trained detector)")
     parser.add_argument("--iou", type=float)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--min-call-interval", type=float, default=DEFAULT_MIN_CALL_INTERVAL,
                         help="minimum seconds between Gemini calls")
-    parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"))
+    parser.add_argument("--thinking-level", choices=("minimal", "low", "medium", "high"), default="minimal",
+                        help="minimal keeps live labels fast; higher levels took 4-28 s per call")
     parser.add_argument("--min-box-side", type=float, default=DEFAULT_MIN_BOX_SIDE,
                         help="ignore proposals whose shorter side is under this many pixels")
     parser.add_argument("--no-display", action="store_true")
+    parser.add_argument("--voice-id", default=DEFAULT_VOICE, help="ElevenLabs voice for spoken descriptions")
+    parser.add_argument("--tts-model", default=DEFAULT_TTS_MODEL, help="ElevenLabs text-to-speech model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     if not args.allow_upload:
@@ -551,13 +748,23 @@ def main() -> None:
         parser.error("SCAVSCRAP_RELAY_TOKEN must be at least 32 lowercase hex characters")
 
     config = load_config(args.config)
+    proposal_confidence = (config["thresholds"]["confidence"] if args.proposal_confidence is None
+                           else args.proposal_confidence)
     command = start_logging(args.output, args.log)
     predictor = UltralyticsPredictor(args.weights, config)
+    cache = HERE.parent / "cache" / "narration" / DESCRIBE_VERSION
+    audio = {}
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        audio = {"speak": lambda text: elevenlabs_speak(text, args.voice_id, args.tts_model),
+                 "audio_dir": cache / f"{args.voice_id}_{args.tts_model}"}
+    else:
+        print("Audio off (set ELEVENLABS_API_KEY to hear descriptions); click a box to read it.", file=sys.stderr)
+    narrator = Narrator(cache, lambda label: gemini_describe(label, args.model), **audio)
 
     def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:
         run_live(
             frames, args.output, predictor, config, args.model, command,
-            args.proposal_confidence, args.iou, args.device, args.timeout,
+            proposal_confidence, args.iou, args.device, args.timeout,
             min_call_interval=args.min_call_interval, show=show, thinking_level=args.thinking_level,
             min_box_side=args.min_box_side,
         )
@@ -570,10 +777,12 @@ def main() -> None:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)
         else:
-            run_with_display(args.camera, detect)
+            run_with_display(args.camera, detect, narrator)
     except KeyboardInterrupt:
         pass
     finally:
+        if narrator:
+            narrator.close()
         if not args.no_display and not args.listen:
             cv2.destroyAllWindows()
 
