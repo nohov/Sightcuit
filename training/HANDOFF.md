@@ -92,9 +92,10 @@ recovered from the v2 labels, so the rebuild matches v2.
 - `gursimar-gill/desktop-pc-dearc-vfv1m` is a fork in Gursimar's workspace. If
   it fails with HTTP 403/404 under someone else's key, use Gursimar's key or
   make that project public in Roboflow.
-- Not tested end to end yet (no key on the Mac that wrote it). The API path and
-  the 401 error handling were checked. If the API response format surprises
-  you, fix `roboflow_link()` and update this note.
+- Tested 2026-10-24 on the Mac with Gursimar's key: all 9 exports resolve, and
+  two were downloaded and imported with filenames and box counts identical to
+  v2. On a first request Roboflow may need ~5-30 s to generate the YOLOv8
+  export; the script polls for it.
 - `scavscrap.zip` (the old 11-class dataset on Google Drive) is not needed.
 
 ## 5. The v2 dataset (11 classes; v3 adds 3, see section 7)
@@ -113,11 +114,22 @@ Sources, all merged by `scripts/build_dataset.py`:
 - **Objects365**: 1,910 images from 12 *validation* patches (the only source of
   towers apart from Roboflow). Downloaded from a public server in Beijing that
   times out sometimes. The script retries.
-- **Roboflow Universe**: desktop-pc-dearc, detect-router-nowgx, monitor-zsqud,
-  monitor-vmdjp, printer-apkfy, printer-ler5v, classroom-ju7eu (projector),
-  mouse-keyboard-tablet, tablets-wwxv9. Listed with their versions and class
-  mappings in `ROBOFLOW_SETS`; `build_dataset.py roboflow-download` fetches and
-  imports all of them.
+- **Roboflow Universe**: 9 exports, defined with their class mappings in
+  `ROBOFLOW_SETS` in `scripts/build_dataset.py`. `build_dataset.py
+  roboflow-download` fetches and imports all of them. Owner (workspace) /
+  project / version:
+
+  | Owner / project / version | Page | Images |
+  |---|---|---|
+  | object-detection-w6jrg / printer-apkfy / 2 | https://universe.roboflow.com/object-detection-w6jrg/printer-apkfy | 1,820 |
+  | rawattech-wvjzo / tablets-wwxv9 / 2 | https://universe.roboflow.com/rawattech-wvjzo/tablets-wwxv9 | 1,141 |
+  | monitor-3sxsx / monitor-zsqud / 7 | https://universe.roboflow.com/monitor-3sxsx/monitor-zsqud | 890 |
+  | printer / printer-ler5v / 1 | https://universe.roboflow.com/printer/printer-ler5v | 565 |
+  | sunmoonuniversary / monitor-vmdjp / 1 | https://universe.roboflow.com/sunmoonuniversary/monitor-vmdjp | 494 |
+  | gursimar-gill / desktop-pc-dearc-vfv1m / 1 | https://universe.roboflow.com/gursimar-gill/desktop-pc-dearc-vfv1m | 323 |
+  | kong-pkdaq / mouse-keyboard-tablet / 1 | https://universe.roboflow.com/kong-pkdaq/mouse-keyboard-tablet | 172 |
+  | pakapon / detect-router-nowgx / 2 | https://universe.roboflow.com/pakapon/detect-router-nowgx | 26 |
+  | camera-4rq00 / classroom-ju7eu / 1 | https://universe.roboflow.com/camera-4rq00/classroom-ju7eu | 11 |
 
 Label decisions already made. Keep them when rebuilding:
 

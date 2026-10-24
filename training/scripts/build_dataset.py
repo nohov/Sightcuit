@@ -274,7 +274,10 @@ def roboflow_link(ref, key):
     for attempt in range(60):
         try:
             with urllib.request.urlopen(url, timeout=60) as r:
-                return json.load(r)["export"]["link"]
+                body = json.load(r)
+            if link := body.get("export", {}).get("link"):
+                return link
+            # 200 without a link: Roboflow is still generating this format on first request; poll.
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")[:300]
             # Errors are rebuilt from ref + status so the key-bearing URL never reaches the terminal or logs.
