@@ -5,11 +5,13 @@ the NVIDIA RTX 4070 Ti. Read this whole file before acting. Last updated 2026-10
 
 ## 0. TL;DR: what to do on this machine
 
-1. Pull the branch (section 2), set up the machine (section 3).
+1. Pull the branch (section 2), set up the machine (section 3), and create
+   `.env` in the repo root with `GEMINI_API_KEY=...` (only needed for the live app).
 2. Get the 9 Roboflow zips from Google Drive (section 4).
 3. Rebuild the dataset from scratch with 14 classes (section 7, about 30-90 min).
 4. Train v3 (section 7, estimate 2.5-3.5 h for yolo11n).
-5. Check per-class scores, commit `weights/scavscrap_v3_best.pt`, push (section 7).
+5. Check per-class scores, point the live app at v3, test it live, commit
+   `weights/scavscrap_v3_best.pt`, push (section 7.5).
 
 ## 1. What the project is
 
@@ -131,20 +133,45 @@ v2: yolo11n, 11 classes, trained 49/50 epochs on a 4070 Super, 21,185 images,
 ~2-3 min/epoch. mAP50 0.683, mAP50-95 0.504. File:
 `weights/scavscrap_v2_best.pt` (committed).
 
-Live app, from the repo root (macOS shown; on Windows use
-`training\.venv\Scripts\python` and `--device 0`):
+Live app, from the repo root. macOS:
 
 ```sh
 set -a; . ./.env; set +a
 training/.venv/bin/python -m recognition.live_runner evaluation/live_predictions.jsonl --allow-upload --camera 0 --device mps
 ```
 
-It defaults to `training/weights/scavscrap_v2_best.pt` with
-`recognition/scavscrap_v2_model.json` (the frozen class list the app checks the
-weights against). Gemini runs off the detection thread, so a 4-28 s Gemini call
-no longer freezes boxes; labels appear when the answer arrives. Measured: Gemini
-3.5 Flash-Lite takes ~7 s per call and sometimes returns HTTP 503, which the
-transport retries with 4/8/16 s backoff.
+Windows (PowerShell):
+
+```powershell
+Get-Content .env | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }
+training\.venv\Scripts\python -m recognition.live_runner evaluation/live_predictions.jsonl --allow-upload --camera 0 --device 0
+```
+
+Press `q` in the window to quit. How it behaves (all in `recognition/live_runner.py`,
+prompt in `recognition/prompt-live-v2.txt`, tested in
+`recognition/tests/test_live_runner.py`):
+
+- Defaults: `training/weights/scavscrap_v2_best.pt` with
+  `recognition/scavscrap_v2_model.json` (the frozen class list the app checks
+  the weights against), detection threshold from that config (0.25), Gemini
+  `--thinking-level minimal`.
+- A box that lasts 5 frames (~0.2 s) is drawn at once in **yellow** with the
+  detector class (`#3 phone...`). When Gemini answers it turns **green** with
+  the name (`#3 Apple iPhone`). If Gemini says "none" (not a tech item, e.g. a
+  toothpaste tube the detector calls a phone at 84%), the box disappears.
+- Gemini gets the full frame plus a full-resolution close-up of each box, and
+  returns `label`, `identified` and `hint`. Labels are brand + product family
+  ("Apple iPhone"), never the exact model, because one family looks alike
+  outside but differs inside. If only a generic type is visible ("smartphone"),
+  it adds a hint (`move closer`, `improve lighting`, `hold still`,
+  `show the logo side`) and the box is re-asked every 10 s while in view.
+- Gemini runs off the detection thread, one call at a time. Measured: 6-26 s per
+  answer (Gemini 3.5 Flash-Lite, plus 4/8/16 s retries on frequent HTTP 503).
+- Tracking: a same-class box near a track's last position continues it, and a
+  track survives ~1.5 s unseen. Before this, a hand-held phone got 13 track IDs
+  in 76 s and Gemini answers landed on dead tracks.
+- Each frame is appended to `evaluation/live_predictions.jsonl` (gitignored);
+  analyse it to debug what was detected, sent and answered.
 
 ## 7. Next task: build and train v3 (14 classes)
 
@@ -236,7 +263,20 @@ yolo11s (`model=yolo11s.pt batch=16`) is more accurate, ~5-8 h.
    `expected_builtin_classes`, update `model_identifier`. Change the two
    defaults in `recognition/live_runner.py` `main()` (`--weights`, `--config`)
    to v3. Run the live runner tests.
-4. Commit and push to `gursimar/yolo26-training`.
+4. Live check: run the live app (section 6) and hold up headphones, earbuds,
+   a smartwatch and a Bluetooth speaker. Each should get a yellow box within
+   ~0.2 s labelled with its new class, then a green Gemini name. Note any that
+   never get a box.
+5. Commit and push to `gursimar/yolo26-training`.
+
+### 7.6 Later, if non-tech items keep getting boxes
+
+The detector has never been shown "nothing here", so phone-shaped objects
+(toothpaste, a fork) become `phone`. YOLO learns this from background images:
+photos with an empty label file. `build_dataset.py` currently skips images with
+no boxes. Adding ~5-10% background images (e.g. Open Images photos of kitchen,
+bathroom and desk objects with none of our classes) would cut these false boxes.
+Gemini already hides them, so this only matters if the yellow boxes annoy.
 
 ## 8. Gotchas
 
