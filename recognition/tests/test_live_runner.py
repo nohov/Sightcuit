@@ -201,10 +201,12 @@ class LiveRunnerTests(unittest.TestCase):
         frame = np.zeros((200, 300, 3), dtype=np.uint8)
         proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0]}
         runner.draw_tracks(frame, [
-            {"track_id": 0, "label": "none", "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal},
-            {"track_id": 1, "label": None, "seen": 1, "proposal": proposal},
+            {"track_id": 0, "label": "none", "proposal": proposal},
+            {"track_id": 1, "label": None, "proposal": proposal},
         ])
         self.assertEqual(frame.sum(), 0)
+        runner.draw_tracks(frame, [{"track_id": 2, "label": "Apple iPhone", "proposal": proposal}])
+        self.assertGreater(frame.sum(), 0)
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))

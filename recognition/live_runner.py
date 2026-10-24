@@ -283,14 +283,13 @@ class LatestFrame:
 
 def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
     for track in tracks:
-        if track["label"] == "none" or track["seen"] < MIN_TRACK_FRAMES:
+        # Only Gemini-confirmed tech items are drawn: the detector calls toothpaste or a fork "phone" at up to 84%.
+        if track["label"] in (None, "none"):
             continue
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
-        label = track["label"] or "..."
-        color = (128, 128, 128) if label in ("none", "...") else (0, 200, 0)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(frame, f"#{track['track_id']} {label}", (x1, max(y1 - 6, 12)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 0), 2)
+        cv2.putText(frame, f"#{track['track_id']} {track['label']}", (x1, max(y1 - 6, 12)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
 
 
 def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
