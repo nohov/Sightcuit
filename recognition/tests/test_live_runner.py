@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 
+import cv2
 import numpy as np
 
 from recognition import live_runner as runner
@@ -145,6 +149,46 @@ class LatestFrameTests(unittest.TestCase):
         self.assertEqual(next(frames), "new")
         latest.stop()
         self.assertEqual(list(frames), [])
+
+
+class RelayServerTests(unittest.TestCase):
+    """Mocked HTTP relay checks; no model inference runs."""
+
+    def setUp(self):
+        self.latest = runner.LatestFrame()
+        self.shown = {"tracks": [{"track_id": 0, "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0]},
+                                  "label": "printer"}], "image_size": [200, 300]}
+        self.server = runner.make_relay_server(("127.0.0.1", 0), "secret", self.latest, self.shown, lambda: True)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def post(self, body, token="secret"):
+        request = urllib.request.Request(f"http://127.0.0.1:{self.server.server_address[1]}/frame", data=body,
+                                         headers={"Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    def test_wrong_token_is_rejected(self):
+        status, _ = self.post(b"x", token="wrong")
+        self.assertEqual(status, 401)
+        self.assertIsNone(self.latest.frame)
+
+    def test_undecodable_body_is_rejected(self):
+        status, _ = self.post(b"not a jpeg")
+        self.assertEqual(status, 400)
+        self.assertIsNone(self.latest.frame)
+
+    def test_jpeg_reaches_detector_and_returns_last_tracks(self):
+        _, jpeg = cv2.imencode(".jpg", np.zeros((200, 300, 3), dtype=np.uint8))
+        status, body = self.post(jpeg.tobytes())
+        self.assertEqual(status, 200)
+        self.assertEqual(self.latest.frame.shape, (200, 300, 3))
+        self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
+                                            "label": "printer"}], "image_size_hw_pixels": [200, 300]})
 
 
 if __name__ == "__main__":

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import hmac
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 import math
 import os
 from pathlib import Path
 import platform
+import secrets
 import shlex
 import sys
 import threading
@@ -18,6 +21,7 @@ import time
 from typing import Any, Callable, Iterable, Iterator
 
 import cv2
+import numpy as np
 
 from recognition.cascade_runner import (
     DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, LABELS, MAX_PROPOSALS, PROMPT_VERSION,
@@ -297,6 +301,86 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
         raise failure[0]
 
 
+MAX_RELAY_FRAME_BYTES = 5 * 1024 * 1024
+
+
+def make_relay_server(
+    address: tuple[str, int], token: str, latest: LatestFrame,
+    shown: dict[str, Any], detector_alive: Callable[[], bool],
+) -> ThreadingHTTPServer:
+    """HTTP endpoint for the iOS glasses relay: POST /frame with a JPEG, get the last finished tracks back.
+
+    shortcut: plain HTTP on the LAN behind a bearer token; add TLS or a tunnel before using shared networks.
+    """
+    expected = f"Bearer {token}".encode()
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, status: int, body: dict[str, Any]) -> None:
+            data = json.dumps(body, separators=(",", ":")).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self) -> None:
+            if self.path != "/frame":
+                return self.reply(404, {"error": "not found"})
+            if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), expected):
+                return self.reply(401, {"error": "bad token"})
+            if not detector_alive():
+                return self.reply(503, {"error": "detector stopped"})
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_RELAY_FRAME_BYTES:
+                return self.reply(400, {"error": "JPEG body missing or too large"})
+            frame = cv2.imdecode(np.frombuffer(self.rfile.read(length), np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                return self.reply(400, {"error": "body is not a decodable image"})
+            latest.put(frame)
+            self.reply(200, {
+                "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
+                            "label": t["label"]} for t in shown["tracks"]],
+                "image_size_hw_pixels": shown["image_size"],
+            })
+
+        def log_message(self, format: str, *args: Any) -> None:
+            logging.info("relay %s " + format, self.address_string(), *args)
+
+    return ThreadingHTTPServer(address, Handler)
+
+
+def serve_relay(host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
+    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C or the detector fails."""
+    latest = LatestFrame()
+    shown: dict[str, Any] = {"tracks": [], "image_size": None}
+    failure: list[BaseException] = []
+
+    def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
+        shown["tracks"] = [dict(track) for track in tracks]  # snapshot: the worker keeps mutating the cache
+        shown["image_size"] = list(frame.shape[:2])
+        return not latest.stopped
+
+    def work() -> None:
+        try:
+            detect(latest, keep)
+        except BaseException as exc:
+            failure.append(exc)
+
+    worker = threading.Thread(target=work, name="live-detector")
+    server = make_relay_server((host, port), token, latest, shown, worker.is_alive)
+    worker.start()
+    # Token goes to the terminal only, never the log file.
+    print(f"relay listening on {host}:{server.server_address[1]}; token {token}", flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        latest.stop()
+        worker.join()
+    if failure:
+        raise failure[0]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="per-frame JSONL output (appended)")
@@ -304,6 +388,8 @@ def main() -> None:
     parser.add_argument("--allow-upload", action="store_true",
                         help="confirm camera frames may be uploaded to Google")
     parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--listen", metavar="HOST:PORT",
+                        help="take frames from the iOS glasses relay over HTTP instead of --camera")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
     parser.add_argument("--proposal-confidence", type=float, default=DEFAULT_PROPOSAL_CONFIDENCE)
@@ -337,7 +423,10 @@ def main() -> None:
         )
 
     try:
-        if args.no_display:
+        if args.listen:
+            host, _, port = args.listen.rpartition(":")
+            serve_relay(host, int(port), secrets.token_urlsafe(16), detect)
+        elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)
         else:
@@ -345,7 +434,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        if not args.no_display:
+        if not args.no_display and not args.listen:
             cv2.destroyAllWindows()
 
 
