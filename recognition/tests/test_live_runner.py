@@ -87,6 +87,20 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertEqual(records[1]["suppressed_duplicate_proposals"][0]["box_xyxy_pixels"],
                          [34.0, 66.0, 223.0, 192.0])
 
+    def test_part_boxes_inside_device_are_suppressed_and_keep_its_track(self):
+        # Real one-laptop webcam run scaled by 0.4: a small "tower" box inside the laptop, then a
+        # screen-only box (IoU 0.54 with the full laptop box) that previously stole the laptop's track.
+        transport = FakeTransport()
+        records = run([
+            [row((0, 76, 194, 192), 0.64)],
+            [row((0, 69, 252, 192), 0.93), row((15, 111, 44, 179), 0.12)],
+            [row((0, 0, 256, 192), 0.25), row((0, 0, 155, 172), 0.13)],
+            [row((7, 34, 192, 160), 0.47)],
+        ], transport)
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual([[d["track_id"] for d in r["detections"]] for r in records], [[0], [0], [0], [0]])
+        self.assertEqual([len(r["suppressed_duplicate_proposals"]) for r in records], [0, 1, 1, 0])
+
     def test_lost_track_is_evicted_and_relabelled(self):
         transport = FakeTransport()
         gap = [[]] * (runner.MAX_MISSED + 1)

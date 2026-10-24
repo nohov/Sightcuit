@@ -29,18 +29,33 @@ from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize
 
 # shortcut: greedy IoU matching with no motion model; switch to Ultralytics ByteTrack if the owner installs `lap`.
 TRACK_IOU = 0.3
-# A new box this close to a box already matched this frame is YOLO re-boxing the same device, not a new one.
+# A new box this close to, or mostly inside, a box already matched this frame is YOLO re-boxing the same
+# device or a part of it (a screen, a corner), not a new device.
+# shortcut: also hides a small device fully inside a bigger one's box (laptop in front of a monitor);
+# replace with per-class reasoning if multi-device scenes matter.
 DUPLICATE_IOU = 0.6
+CONTAINED_FRACTION = 0.8
 MAX_MISSED = 15
 DEFAULT_MIN_CALL_INTERVAL = 2.0
 
 
+def box_area(box: list[float]) -> float:
+    return (box[2] - box[0]) * (box[3] - box[1])
+
+
+def intersection(a: list[float], b: list[float]) -> float:
+    return max(0.0, min(a[2], b[2]) - max(a[0], b[0])) * max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+
+
 def box_iou(a: list[float], b: list[float]) -> float:
-    width = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
-    height = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
-    inter = width * height
-    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    inter = intersection(a, b)
+    union = box_area(a) + box_area(b) - inter
     return inter / union if union > 0 else 0.0
+
+
+def is_duplicate(box: list[float], other: list[float]) -> bool:
+    return (box_iou(box, other) >= DUPLICATE_IOU
+            or intersection(box, other) >= CONTAINED_FRACTION * box_area(box))
 
 
 class TrackCache:
@@ -62,7 +77,7 @@ class TrackCache:
             if best is not None and box_iou(box, self.tracks[best]["proposal"]["box_xyxy_pixels"]) >= TRACK_IOU:
                 unmatched.discard(best)
                 track = self.tracks[best]
-            elif any(box_iou(box, t["proposal"]["box_xyxy_pixels"]) >= DUPLICATE_IOU for t in current):
+            elif any(is_duplicate(box, t["proposal"]["box_xyxy_pixels"]) for t in current):
                 suppressed.append(proposal)
                 continue
             else:
