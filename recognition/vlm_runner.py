@@ -7,28 +7,20 @@ import argparse
 import base64
 import csv
 import json
-import os
 from pathlib import Path
-import tempfile
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from labels import NON_CLASS_OUTCOMES, TARGET_CLASSES
+from recognition.runio import atomic_jsonl
 
-PROMPT_VERSION = "electronics-pokedex-v1"
+
+PROMPT_VERSION = "electronics-pokedex-v2"
 DEFAULT_MODEL = "qwen3-vl:4b-instruct-q4_K_M"
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434/api/chat"
-OUTCOMES = {
-    "laptop",
-    "desktop_computer_tower",
-    "monitor",
-    "printer",
-    "projector",
-    "ambiguous",
-    "unsupported",
-    "unreadable",
-}
+OUTCOMES = {*TARGET_CLASSES, *NON_CLASS_OUTCOMES}
 HERE = Path(__file__).resolve().parent
 Transport = Callable[[dict[str, Any], str, float], dict[str, Any]]
 
@@ -179,33 +171,24 @@ def run_manifest(
     manifest, output = manifest.resolve(), output.resolve()
     if manifest == output:
         raise ValueError("manifest and output paths must differ")
-    prompt = (HERE / "prompt-v1.txt").read_text(encoding="utf-8")
+    prompt = (HERE / "prompt-vlm-v2.txt").read_text(encoding="utf-8")
     response_schema = json.loads((HERE / "model_response.schema.json").read_text(encoding="utf-8"))
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=output.parent, delete=False
-        ) as destination:
-            temporary_path = Path(destination.name)
-            for line_number, raw_entry in manifest_entries(manifest):
-                try:
-                    entry = raw_entry if isinstance(raw_entry, dict) else json.loads(raw_entry)
-                    if not isinstance(entry, dict):
-                        raise ValueError("entry must be an object")
-                    record = classify(
-                        entry, manifest.parent, model, endpoint, timeout, prompt,
-                        response_schema, transport,
-                    )
-                except (json.JSONDecodeError, ValueError) as exc:
-                    record = error_record(
-                        f"manifest-line-{line_number}", model, "unsupported", f"manifest_error: {exc}"
-                    )
-                destination.write(json.dumps(record, separators=(",", ":")) + "\n")
-        os.replace(temporary_path, output)
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
+
+    with atomic_jsonl(output) as write:
+        for line_number, raw_entry in manifest_entries(manifest):
+            try:
+                entry = raw_entry if isinstance(raw_entry, dict) else json.loads(raw_entry)
+                if not isinstance(entry, dict):
+                    raise ValueError("entry must be an object")
+                record = classify(
+                    entry, manifest.parent, model, endpoint, timeout, prompt,
+                    response_schema, transport,
+                )
+            except (json.JSONDecodeError, ValueError) as exc:
+                record = error_record(
+                    f"manifest-line-{line_number}", model, "unsupported", f"manifest_error: {exc}"
+                )
+            write(record)
 
 
 def main() -> None:

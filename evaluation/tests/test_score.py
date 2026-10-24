@@ -39,7 +39,7 @@ def prediction(image_id: str, outcome: str, latency: float = 10.0,
         "outcome": outcome,
         "evidence": None,
         "model_identifier": "mock-model",
-        "prompt_version": "electronics-pokedex-v1",
+        "prompt_version": "electronics-pokedex-v2",
         "latency_ms": latency,
         "error": error,
         "raw_response": None,
@@ -51,29 +51,29 @@ class ScoreTests(unittest.TestCase):
         rows = [
             manifest_row("a", "laptop"),
             manifest_row("b", "unsupported"),
-            manifest_row("c", "monitor"),
-            manifest_row("d", "projector"),
+            manifest_row("c", "phone"),
+            manifest_row("d", "headphones"),
         ]
         predictions = {
             "a": prediction("a", "laptop", 10),
-            "b": prediction("b", "printer", 20),
+            "b": prediction("b", "speaker", 20),
             "c": prediction("c", "unsupported", 30, "inference_error: timeout"),
-            "extra": prediction("extra", "monitor", 40),
+            "extra": prediction("extra", "phone", 40),
         }
 
         report = score(rows, predictions)
 
         self.assertEqual(report["request_failures"]["count"], 2)
-        self.assertEqual(report["confusion"]["monitor"]["request_failure"], 1)
-        self.assertEqual(report["confusion"]["projector"]["request_failure"], 1)
+        self.assertEqual(report["confusion"]["phone"]["request_failure"], 1)
+        self.assertEqual(report["confusion"]["headphones"]["request_failure"], 1)
         self.assertEqual(report["unsupported_false_acceptance"]["rate"], 1.0)
         self.assertEqual(report["per_class"]["laptop"]["precision"], 1.0)
-        self.assertEqual(report["per_class"]["monitor"]["recall"], 0.0)
+        self.assertEqual(report["per_class"]["phone"]["recall"], 0.0)
         self.assertEqual(report["unexpected_predictions"], ["extra"])
         self.assertEqual(len(report["records"]), 4)
 
     def test_abstention_and_latency(self) -> None:
-        rows = [manifest_row("a", "printer"), manifest_row("b", "projector")]
+        rows = [manifest_row("a", "speaker"), manifest_row("b", "headphones")]
         predictions = {
             "a": prediction("a", "ambiguous", 10),
             "b": prediction("b", "unreadable", 30),
@@ -94,7 +94,7 @@ class ScoreTests(unittest.TestCase):
                 writer = csv.DictWriter(destination, fieldnames=FIELDS)
                 writer.writeheader()
                 writer.writerow(manifest_row("a", "laptop"))
-            invalid = prediction("b", "monitor")
+            invalid = prediction("b", "phone")
             del invalid["prompt_version"]
             predictions.write_text(
                 json.dumps(prediction("a", "laptop")) + "\nnot-json\n" +
@@ -117,7 +117,7 @@ class ScoreTests(unittest.TestCase):
                 writer = csv.DictWriter(destination, fieldnames=FIELDS)
                 writer.writeheader()
                 writer.writerow(manifest_row("same", "laptop"))
-                writer.writerow(manifest_row("same", "monitor"))
+                writer.writerow(manifest_row("same", "phone"))
 
             with self.assertRaisesRegex(ValueError, "duplicate image_id"):
                 load_manifest(manifest)

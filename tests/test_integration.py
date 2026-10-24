@@ -17,11 +17,11 @@ class IntegrationTests(unittest.TestCase):
         config = yolo_runner.load_config(ROOT / "recognition/yolo_model.json")
         target_ids = {entry["id"] for entry in labels["classes"]}
 
-        self.assertEqual(target_ids, yolo_runner.TARGET_CLASSES)
+        self.assertEqual(target_ids, set(yolo_runner.TARGET_CLASSES))
         self.assertEqual(target_ids, set(config["target_support"]))
-        self.assertEqual(config["raw_to_project_mapping"], {"laptop": "laptop"})
-        self.assertEqual(config["target_support"]["monitor"]["status"], "unsupported")
-        self.assertIn("tv", config["target_support"]["monitor"]["rejected_raw_class_names"])
+        self.assertEqual(config["raw_to_project_mapping"], {"laptop": "laptop", "cell phone": "phone"})
+        self.assertEqual(config["target_support"]["smartwatch"]["status"], "unsupported")
+        self.assertIn("clock", config["target_support"]["smartwatch"]["rejected_raw_class_names"])
 
     def test_detection_schema_requires_raw_and_reproducibility_fields(self) -> None:
         schema = json.loads(

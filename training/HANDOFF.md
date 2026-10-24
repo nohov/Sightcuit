@@ -296,6 +296,13 @@ yolo11s (`model=yolo11s.pt batch=16`) is more accurate, ~5-8 h.
    `expected_builtin_classes`, update `model_identifier`. Change the two
    defaults in `recognition/live_runner.py` `main()` (`--weights`, `--config`)
    to v3. Run the live runner tests.
+   Note: `main` now uses the project classes laptop, phone, headphones,
+   smartwatch, speaker (`labels/classes.json`), and the config must give
+   `target_support` for exactly those five. Map v3's `laptop`, `phone` and
+   `speaker` with `supported_exact`. v3's `headphones` includes earbuds and its
+   `watch` includes analog watches, while the project definitions exclude
+   those, so mark `headphones` and `smartwatch` unsupported, or confirm a
+   looser mapping with the team first. Gemini still names them either way.
 4. Live check: run the live app (section 6) and hold up headphones, earbuds,
    a smartwatch and a Bluetooth speaker. Each should get a yellow box within
    ~0.2 s labelled with its new class, then a green Gemini name. Note any that

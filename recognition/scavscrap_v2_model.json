@@ -10,41 +10,51 @@
     "iou": 0.7
   },
   "expected_builtin_classes": [
-    "laptop", "desktop_computer_tower", "monitor", "printer", "projector",
-    "keyboard", "mouse", "phone", "tablet", "tv", "router"
+    "laptop",
+    "desktop_computer_tower",
+    "monitor",
+    "printer",
+    "projector",
+    "keyboard",
+    "mouse",
+    "phone",
+    "tablet",
+    "tv",
+    "router"
   ],
   "raw_to_project_mapping": {
     "laptop": "laptop",
-    "desktop_computer_tower": "desktop_computer_tower",
-    "monitor": "monitor",
-    "printer": "printer",
-    "projector": "projector"
+    "phone": "phone"
   },
   "target_support": {
     "laptop": {
       "status": "supported_exact",
-      "raw_class_names": ["laptop"],
-      "reason": "Trained class named after the project class."
+      "raw_class_names": [
+        "laptop"
+      ],
+      "reason": "Trained class laptop matches labels/classes.json."
     },
-    "desktop_computer_tower": {
+    "phone": {
       "status": "supported_exact",
-      "raw_class_names": ["desktop_computer_tower"],
-      "reason": "Trained class named after the project class."
+      "raw_class_names": [
+        "phone"
+      ],
+      "reason": "Trained class phone is a handheld mobile phone; tablet is a separate trained class."
     },
-    "monitor": {
-      "status": "supported_exact",
-      "raw_class_names": ["monitor"],
-      "reason": "Trained class named after the project class; tv is a separate trained class."
+    "headphones": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no headphones class; the v3 run in training/HANDOFF.md adds one."
     },
-    "printer": {
-      "status": "supported_exact",
-      "raw_class_names": ["printer"],
-      "reason": "Trained class named after the project class."
+    "smartwatch": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no watch class; the v3 run in training/HANDOFF.md adds one."
     },
-    "projector": {
-      "status": "supported_exact",
-      "raw_class_names": ["projector"],
-      "reason": "Trained class named after the project class."
+    "speaker": {
+      "status": "unsupported",
+      "raw_class_names": [],
+      "reason": "v2 has no speaker class; the v3 run in training/HANDOFF.md adds one."
     }
   },
   "sources": [

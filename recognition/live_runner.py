@@ -7,20 +7,24 @@ import argparse
 import base64
 from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from contextlib import closing, contextmanager
+import hmac
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 import math
 import os
 from pathlib import Path
 import platform
-import shlex
+import secrets
 import sys
 import textwrap
 import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
+from urllib.parse import parse_qs, urlsplit
 
 import cv2
+import numpy as np
 
 from recognition.cascade_runner import (
     DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, region_text,
@@ -29,6 +33,7 @@ from recognition.gemini_runner import API_VERSION, Transport, build_payload, gem
 from recognition.narrator import (
     DEFAULT_TTS_MODEL, DEFAULT_VOICE, PROMPT_VERSION as DESCRIBE_VERSION, Narrator, elevenlabs_speak, gemini_describe,
 )
+from recognition.runio import start_logging
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
 
 
@@ -36,7 +41,7 @@ from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize
 TRACK_IOU = 0.3
 # A new box this close to, or mostly inside, a box already matched this frame is YOLO re-boxing the same
 # device or a part of it (a screen, a corner), not a new device.
-# shortcut: also hides a small device fully inside a bigger one's box (laptop in front of a monitor);
+# shortcut: also hides a small device fully inside a bigger one's box (phone lying on a laptop);
 # replace with per-class reasoning if multi-device scenes matter.
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
@@ -474,6 +479,211 @@ def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[...,
         raise failure[0]
 
 
+MAX_RELAY_FRAME_BYTES = 5 * 1024 * 1024
+STREAM_POLL_SECONDS = 0.03
+EVENTS_KEEPALIVE_SECONDS = 15.0
+STREAM_JPEG_QUALITY = 80
+
+
+def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
+    """The last finished detection, shaped like the frames the dashboard reads (see frontend/src/feed.js)."""
+    frame_index = shown.get("seq", 0) - 1
+    return {
+        "frame_index": frame_index,
+        "timestamp": time.time(),
+        "image_size_hw_pixels": shown.get("image_size"),
+        "tracks": [{
+            "track_id": track["track_id"],
+            "proposal": {
+                "box_xyxy_pixels": track["proposal"]["box_xyxy_pixels"],
+                "confidence": track["proposal"].get("confidence"),
+            },
+            # The dashboard keys device data on the project class, so a confirmed item sends the detector's class
+            # (falling back to Gemini's name for classes outside the five); `name` is Gemini's free-text name.
+            "gemini_label": track.get("label") if track.get("label") in (None, "none")
+            else track["proposal"].get("project_class") or track["label"],
+            "name": None if track.get("label") in (None, "none") else track["label"],
+            "hint": track.get("hint"),
+            "label_source": None if track.get("label") is None
+            else "gemini" if track.get("labelled_frame") == frame_index else "track_cache",
+        } for track in shown.get("tracks", [])],
+    }
+
+
+def make_relay_server(
+    address: tuple[str, int], token: str, latest: LatestFrame,
+    shown: dict[str, Any], detector_alive: Callable[[], bool],
+) -> ThreadingHTTPServer:
+    """HTTP endpoint for the iOS glasses relay: POST /frame with a JPEG, get the last finished tracks back.
+
+    The dashboard reads two GET endpoints, authorized with ?token= because browsers cannot set headers on
+    <img> or EventSource requests:
+      /stream.mjpg  newest relayed frame as an MJPEG stream (no boxes drawn; the dashboard draws them)
+      /events       Server-Sent Events, one dashboard_record() per finished detection
+
+    shortcut: plain HTTP on the LAN behind a bearer token; add TLS or a tunnel before using shared networks.
+    """
+    expected = f"Bearer {token}".encode()
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, status: int, body: dict[str, Any]) -> None:
+            data = json.dumps(body, separators=(",", ":")).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def start_stream(self, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            url = urlsplit(self.path)
+            supplied = (parse_qs(url.query).get("token") or [""])[0]
+            if url.path not in ("/stream.mjpg", "/events"):
+                return self.reply(404, {"error": "not found"})
+            if not hmac.compare_digest(f"Bearer {supplied}".encode(), expected):
+                return self.reply(401, {"error": "bad token"})
+            try:
+                if url.path == "/stream.mjpg":
+                    self.stream_frames()
+                else:
+                    self.stream_events()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser closed the tab or reconnected
+
+        def stream_frames(self) -> None:
+            self.start_stream("multipart/x-mixed-replace; boundary=frame")
+            last = None
+            while detector_alive():
+                frame = shown.get("frame")
+                if frame is None or frame is last:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                last = frame
+                encoded, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY])
+                if not encoded:
+                    continue
+                data = jpeg.tobytes()
+                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                 + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+                self.wfile.flush()
+
+        def stream_events(self) -> None:
+            self.start_stream("text/event-stream")
+            last_seq = None
+            last_write = time.monotonic()
+            while detector_alive():
+                seq = shown.get("seq", 0)
+                if seq and seq != last_seq:
+                    last_seq = seq
+                    payload = json.dumps(dashboard_record(shown), separators=(",", ":"))
+                    self.wfile.write(f"data: {payload}\n\n".encode())
+                elif time.monotonic() - last_write >= EVENTS_KEEPALIVE_SECONDS:
+                    self.wfile.write(b": keepalive\n\n")
+                else:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                self.wfile.flush()
+                last_write = time.monotonic()
+
+        def do_POST(self) -> None:
+            if self.path != "/frame":
+                return self.reply(404, {"error": "not found"})
+            if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), expected):
+                return self.reply(401, {"error": "bad token"})
+            if not detector_alive():
+                return self.reply(503, {"error": "detector stopped"})
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_RELAY_FRAME_BYTES:
+                return self.reply(400, {"error": "JPEG body missing or too large"})
+            frame = cv2.imdecode(np.frombuffer(self.rfile.read(length), np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                return self.reply(400, {"error": "body is not a decodable image"})
+            latest.put(frame)
+            shown["frame"] = frame  # newest received frame for the laptop preview
+            self.reply(200, {
+                "tracks": [{"track_id": t["track_id"], "box_xyxy_pixels": t["proposal"]["box_xyxy_pixels"],
+                            "label": t["label"]} for t in shown["tracks"]],
+                "image_size_hw_pixels": shown["image_size"],
+            })
+
+        def log_message(self, format: str, *args: Any) -> None:
+            logging.info("relay %s " + format, self.address_string(), *args)
+
+    return ThreadingHTTPServer(address, Handler)
+
+
+def show_relay_frames(shown: dict[str, Any], running: Callable[[], bool]) -> None:
+    """Show the newest relayed frame with the last finished boxes until q or the detector stops."""
+    last = None
+    while running():
+        frame = shown["frame"]
+        if frame is None:
+            time.sleep(0.03)  # no window yet, so waitKey would return at once
+            continue
+        if frame is not last:
+            last = frame
+            view = frame.copy()
+            draw_tracks(view, shown["tracks"])
+            cv2.imshow("scavscrap relay (q quits)", view)
+        if cv2.waitKey(30) & 0xFF == ord("q"):
+            break
+    cv2.destroyAllWindows()
+
+
+def serve_relay(
+    host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
+    display: bool = False,
+) -> None:
+    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails."""
+    latest = LatestFrame()
+    shown: dict[str, Any] = {"tracks": [], "image_size": None, "frame": None, "seq": 0}
+    failure: list[BaseException] = []
+
+    def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
+        shown["tracks"] = [dict(track) for track in tracks]  # snapshot: the worker keeps mutating the cache
+        shown["image_size"] = list(frame.shape[:2])
+        shown["seq"] += 1  # one per finished detection; tells /events there is a new record
+        return not latest.stopped
+
+    def work() -> None:
+        try:
+            detect(latest, keep)
+        except BaseException as exc:
+            failure.append(exc)
+
+    worker = threading.Thread(target=work, name="live-detector")
+    server = make_relay_server((host, port), token, latest, shown, worker.is_alive)
+    worker.start()
+    # Token goes to the terminal only, never the log file.
+    print(f"relay listening on {host}:{server.server_address[1]}; token {token}", flush=True)
+    print(f"dashboard: open http://localhost:5173/?relay=http://localhost:{server.server_address[1]}"
+          f"&token={token}", flush=True)
+    # macOS only allows OpenCV windows on the main thread, so the server moves off it when displaying.
+    server_thread = threading.Thread(target=server.serve_forever, name="relay-server")
+    try:
+        if display:
+            server_thread.start()
+            show_relay_frames(shown, worker.is_alive)
+        else:
+            server.serve_forever()
+    finally:
+        if server_thread.is_alive():
+            server.shutdown()
+        server.server_close()
+        latest.stop()
+        worker.join()
+    if failure:
+        raise failure[0]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="per-frame JSONL output (appended)")
@@ -482,6 +692,8 @@ def main() -> None:
     parser.add_argument("--allow-upload", action="store_true",
                         help="confirm camera frames may be uploaded to Google")
     parser.add_argument("--camera", type=int, default=0)
+    parser.add_argument("--listen", metavar="HOST:PORT",
+                        help="take frames from the iOS glasses relay over HTTP instead of --camera")
     parser.add_argument("--config", type=Path, default=HERE / "scavscrap_v2_model.json")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
     parser.add_argument("--proposal-confidence", type=float,
@@ -506,11 +718,7 @@ def main() -> None:
     config = load_config(args.config)
     proposal_confidence = (config["thresholds"]["confidence"] if args.proposal_confidence is None
                            else args.proposal_confidence)
-    log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    command = shlex.join([sys.executable, *sys.argv])
-    logging.info("Starting command: %s", command)
+    command = start_logging(args.output, args.log)
     predictor = UltralyticsPredictor(args.weights, config)
     cache = HERE.parent / "cache" / "narration" / DESCRIBE_VERSION
     audio = {}
@@ -529,7 +737,11 @@ def main() -> None:
         )
 
     try:
-        if args.no_display:
+        if args.listen:
+            host, _, port = args.listen.rpartition(":")
+            # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
+            serve_relay(host, int(port), secrets.token_hex(16), detect, display=not args.no_display)
+        elif args.no_display:
             with closing(camera_frames(args.camera)) as frames:
                 detect(frames)
         else:
@@ -539,7 +751,7 @@ def main() -> None:
     finally:
         if narrator:
             narrator.close()
-        if not args.no_display:
+        if not args.no_display and not args.listen:
             cv2.destroyAllWindows()
 
 

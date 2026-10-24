@@ -41,7 +41,7 @@ class FakePredictor:
 class YoloRunnerTests(unittest.TestCase):
     def test_missing_weights_stop_before_runtime_or_download(self):
         with tempfile.TemporaryDirectory() as directory:
-            missing = Path(directory) / "yolo11n.pt"
+            missing = Path(directory) / "yolo26n.pt"
             with self.assertRaisesRegex(RuntimeError, "automatic downloads are disabled"):
                 yolo_runner.UltralyticsPredictor(missing, CONFIG)
 
@@ -58,6 +58,12 @@ class YoloRunnerTests(unittest.TestCase):
             "mapping_status": "mapped",
         }])
         self.assertEqual(raw[0]["box"]["x1"], 10)
+
+    def test_coco_cell_phone_maps_to_phone_and_clock_stays_unsupported(self):
+        raw = [detection("cell phone", 67, 0.8), detection("clock", 74, 0.8)]
+        parsed = yolo_runner.normalize_summary(raw, (200, 300), 0.25, CONFIG)
+        self.assertEqual([(d["project_class"], d["mapping_status"]) for d in parsed],
+                         [("phone", "mapped"), (None, "unsupported")])
 
     def test_threshold_filtering(self):
         raw = [
@@ -109,14 +115,14 @@ class YoloRunnerTests(unittest.TestCase):
 
     def test_unsupported_target_mapping_is_refused(self):
         config = copy.deepcopy(CONFIG)
-        config["raw_to_project_mapping"]["tv"] = "monitor"
-        config["target_support"]["monitor"]["raw_class_names"] = ["tv"]
+        config["raw_to_project_mapping"]["clock"] = "smartwatch"
+        config["target_support"]["smartwatch"]["raw_class_names"] = ["clock"]
         with self.assertRaisesRegex(ValueError, "unsupported target"):
             yolo_runner.validate_config(config)
 
     def test_open_vocabulary_config_sets_prompts_as_classes(self):
         world = yolo_runner.load_config(yolo_runner.HERE / "yolo_world_model.json")
-        self.assertEqual(set(world["raw_to_project_mapping"].values()), yolo_runner.TARGET_CLASSES)
+        self.assertEqual(set(world["raw_to_project_mapping"].values()), set(yolo_runner.TARGET_CLASSES))
 
         class FakeWorldModel:
             def __init__(self, path, task):
@@ -138,7 +144,7 @@ class YoloRunnerTests(unittest.TestCase):
     def test_class_name_must_match_frozen_model_list(self):
         with self.assertRaisesRegex(ValueError, "class name"):
             yolo_runner.normalize_summary(
-                [detection("monitor", 62, 0.9)], (200, 300), 0.25, CONFIG
+                [detection("smartwatch", 74, 0.9)], (200, 300), 0.25, CONFIG
             )
 
 

@@ -18,7 +18,7 @@ Why this is the smallest credible option:
 
 - It accepts image and text input, while the five-class task needs open-vocabulary
   distinctions that a fixed-label classifier may not contain (especially
-  `projector` and `desktop_computer_tower`).
+  `headphones`, `smartwatch` and `speaker`).
 - Ollama's local REST API accepts base64 images and a JSON Schema, so the checked-in
   runner needs only Python's standard library.
 - The exact Ollama artifact is a 4.02B-parameter Q4_K_M model plus a 415M vision
@@ -92,10 +92,10 @@ After separately approving and completing the missing install/download:
 ```sh
 ollama serve
 ollama pull qwen3-vl:4b-instruct-q4_K_M
-python3 recognition/vlm_runner.py evaluation/manifest.csv evaluation/vlm_predictions.jsonl
+python -m recognition.vlm_runner evaluation/manifest.csv evaluation/vlm_predictions.jsonl
 ```
 
-`prompt-v1.txt` is the frozen prompt. `model_response.schema.json` is passed to
+`prompt-vlm-v2.txt` is the frozen prompt. `model_response.schema.json` is passed to
 Ollama. `classification_prediction.schema.json` specifies the persisted record. Change the prompt
 version whenever prompt wording or class rules change.
 
