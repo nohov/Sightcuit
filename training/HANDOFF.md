@@ -7,7 +7,8 @@ the NVIDIA RTX 4070 Ti. Read this whole file before acting. Last updated 2026-10
 
 1. Pull the branch (section 2), set up the machine (section 3), and create
    `.env` in the repo root with `GEMINI_API_KEY=...` (only needed for the live app).
-2. Get the 9 Roboflow zips from Google Drive (section 4).
+2. Get a Roboflow API key into the environment (section 4). Every download is a
+   command; nothing comes from Google Drive any more.
 3. Rebuild the dataset from scratch with 14 classes (section 7, about 30-90 min).
 4. Train v3 (section 7, estimate 2.5-3.5 h for yolo11n).
 5. Check per-class scores, point the live app at v3, test it live, commit
@@ -71,16 +72,30 @@ py -3.13 -m venv .venv
 - Unzip with 7-Zip into a short path (e.g. `C:\scavscrap\`) if Explorer fails:
   Windows has a 260-character path limit.
 
-## 4. Inputs from Google Drive
+## 4. Inputs: one API key
 
-| File | Put it at | Needed for |
-|---|---|---|
-| Roboflow zips (~1.2 GB, 9 exports) | `datasets\` at repo root | **required**: the v3 rebuild re-imports them |
-| `scavscrap.zip` (3.7 GB) | not needed | old 11-class dataset; v3 rebuilds from source |
+All data downloads are commands (section 7.2). The only manual input is a
+Roboflow API key, for the 9 Roboflow Universe exports the dataset uses:
 
-The 9 Roboflow exports and their class mappings are listed in section 5. If an
-export's mapping isn't written down anywhere, list the zip's `data.yaml`
-`names` and map them to our classes; drop anything that isn't one of ours.
+1. Sign in at roboflow.com (free), then Settings > API Keys, copy the private key.
+2. Add a line `ROBOFLOW_API_KEY=...` to `.env` in the repo root (gitignored),
+   next to `GEMINI_API_KEY`. Never paste the key into chat or a commit.
+3. Load `.env` into the PowerShell session before building:
+   `Get-Content ..\.env | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }`
+   (from `training\`).
+
+`build_dataset.py roboflow-download` then fetches each export through the
+Roboflow API (YOLOv8 format), caches it in `datasets\_raw\roboflow\`, and
+imports it with the class mapping in `ROBOFLOW_SETS`. Those mappings were
+recovered from the v2 labels, so the rebuild matches v2.
+
+- `gursimar-gill/desktop-pc-dearc-vfv1m` is a fork in Gursimar's workspace. If
+  it fails with HTTP 403/404 under someone else's key, use Gursimar's key or
+  make that project public in Roboflow.
+- Not tested end to end yet (no key on the Mac that wrote it). The API path and
+  the 401 error handling were checked. If the API response format surprises
+  you, fix `roboflow_link()` and update this note.
+- `scavscrap.zip` (the old 11-class dataset on Google Drive) is not needed.
 
 ## 5. The v2 dataset (11 classes; v3 adds 3, see section 7)
 
@@ -100,8 +115,9 @@ Sources, all merged by `scripts/build_dataset.py`:
   times out sometimes. The script retries.
 - **Roboflow Universe**: desktop-pc-dearc, detect-router-nowgx, monitor-zsqud,
   monitor-vmdjp, printer-apkfy, printer-ler5v, classroom-ju7eu (projector),
-  mouse-keyboard-tablet, tablets-wwxv9. Imported with
-  `build_dataset.py roboflow <zip> "Their Name=our_class" ...`.
+  mouse-keyboard-tablet, tablets-wwxv9. Listed with their versions and class
+  mappings in `ROBOFLOW_SETS`; `build_dataset.py roboflow-download` fetches and
+  imports all of them.
 
 Label decisions already made. Keep them when rebuilding:
 
@@ -205,8 +221,7 @@ Remove-Item -Recurse -Force datasets\scavscrap   # stale 11-class labels must no
 .venv\Scripts\python scripts\build_dataset.py openimages   # FiftyOne download, the slow part
 .venv\Scripts\python scripts\build_dataset.py lvis
 .venv\Scripts\python scripts\build_dataset.py objects365   # Beijing server, may time out; it retries
-# then every Roboflow export from section 5, e.g.:
-.venv\Scripts\python scripts\build_dataset.py roboflow ..\datasets\<export>.zip "Their Name=our_class"
+.venv\Scripts\python scripts\build_dataset.py roboflow-download   # needs ROBOFLOW_API_KEY (section 4)
 .venv\Scripts\python scripts\build_dataset.py split        # writes train.txt, val.txt, data.yaml
 ```
 

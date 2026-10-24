@@ -1,7 +1,8 @@
 """Build the merged scavscrap YOLO dataset from Open Images V7, LVIS and Objects365.
 
-Usage: python scripts/build_dataset.py {selftest,openimages,lvis,objects365,split}
+Usage: python scripts/build_dataset.py {selftest,openimages,lvis,objects365,roboflow-download,split}
        python scripts/build_dataset.py roboflow export.zip "Their Name=our_class" ...
+roboflow-download needs ROBOFLOW_API_KEY in the environment (free account: roboflow.com > Settings > API Keys).
 """
 
 import hashlib
@@ -11,6 +12,8 @@ import re
 import sys
 import tarfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
@@ -41,6 +44,20 @@ O365 = {"Laptop": "laptop", "Computer Box": "desktop_computer_tower", "Projector
         "Speaker": "speaker", "Watch": "watch"}
 O365_MASK = "Moniter/TV"  # sic, upstream spelling; merged class: painted out so it is never an unlabeled monitor or tv
 O365_REQUIRED = {"desktop_computer_tower", "projector", "printer", "router", "headphones", "speaker", "watch"}
+# Roboflow Universe exports in the dataset: workspace/project/version, then "Their Name=our_class" mappings
+# (recovered from the v2 labels; unmapped classes such as person or book are dropped).
+ROBOFLOW_SETS = [
+    ("object-detection-w6jrg/printer-apkfy/2", "Printer=printer", "Printer - v1 2026-05-06 1-40pm=printer"),
+    ("rawattech-wvjzo/tablets-wwxv9/2", "tablet=tablet"),
+    ("monitor-3sxsx/monitor-zsqud/7", "monitor hidup=monitor", "monitor mati=monitor"),
+    ("printer/printer-ler5v/1", "printer=printer"),
+    ("sunmoonuniversary/monitor-vmdjp/1", "monitor=monitor"),
+    ("gursimar-gill/desktop-pc-dearc-vfv1m/1", "DESKTOP PC=desktop_computer_tower",
+     "Desktop-PC=desktop_computer_tower", "Monitors=monitor"),
+    ("kong-pkdaq/mouse-keyboard-tablet/1", "mouse=mouse", "keyboard=keyboard", "tablet=tablet"),
+    ("pakapon/detect-router-nowgx/2", "router=router"),
+    ("camera-4rq00/classroom-ju7eu/1", "projector=projector"),
+]
 O365_URL = "https://dorc.ks3-cn-beijing.ksyun.com/data-set/2020Objects365%E6%95%B0%E6%8D%AE%E9%9B%86/val/"
 
 
@@ -251,6 +268,39 @@ def roboflow(zip_path, *mappings):
     print(f"roboflow {project}: {n_imgs} images, boxes:", dict(counts))
 
 
+def roboflow_link(ref, key):
+    """Signed zip URL for a YOLOv8 export, asking Roboflow to generate it first if needed."""
+    url = f"https://api.roboflow.com/{ref}/yolov8?" + urllib.parse.urlencode({"api_key": key})
+    for attempt in range(60):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                return json.load(r)["export"]["link"]
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")[:300]
+            # Errors are rebuilt from ref + status so the key-bearing URL never reaches the terminal or logs.
+            if e.code in (401, 403) or (attempt == 0 and '"error"' in body and "export" not in body.lower()):
+                raise RuntimeError(f"Roboflow {ref}: HTTP {e.code} {body}") from None
+            if attempt == 0:
+                try:
+                    urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=60).close()
+                except urllib.error.HTTPError as post:
+                    raise RuntimeError(f"Roboflow {ref}: export request HTTP {post.code} "
+                                       f"{post.read().decode(errors='replace')[:300]}") from None
+        time.sleep(5)
+    raise RuntimeError(f"Roboflow {ref}: export not ready after 5 minutes; rerun to retry")
+
+
+def roboflow_download():
+    """Download and import every ROBOFLOW_SETS export. Zips are cached in _raw/roboflow/ for reruns."""
+    key = os.environ.get("ROBOFLOW_API_KEY")
+    assert key, "set ROBOFLOW_API_KEY in the environment (roboflow.com > Settings > API Keys)"
+    for ref, *mappings in ROBOFLOW_SETS:
+        dest = RAW / "roboflow" / (ref.replace("/", "_") + ".zip")
+        if not dest.exists():
+            fetch(roboflow_link(ref, key), dest)
+        roboflow(dest, *mappings)
+
+
 def short_stem(stem, limit=100):
     """Windows paths cap at 260 chars. Keeps the part before '.rf.' (the split group key) stable."""
     if len(stem) <= limit:
@@ -324,6 +374,9 @@ def selftest():
     assert is_val("oi_abc") == is_val("oi_abc")
     assert 10 < sum(is_val(f"x{i}") for i in range(1000)) / 10 < 20
     assert set(OPENIMAGES.values()) | set(LVIS.values()) | set(O365.values()) == set(CLASSES)  # every class has a source
+    for ref, *mappings in ROBOFLOW_SETS:
+        assert len(ref.split("/")) == 3 and ref.split("/")[2].isdigit(), ref
+        assert mappings and all(m.rsplit("=", 1)[1] in CLASSES for m in mappings), ref
     assert CLASSES[:11] == ["laptop", "desktop_computer_tower", "monitor", "printer", "projector",
                             "keyboard", "mouse", "phone", "tablet", "tv", "router"]  # v2 IDs unchanged
     print("selftest ok")
@@ -331,4 +384,4 @@ def selftest():
 
 if __name__ == "__main__":
     {"selftest": selftest, "openimages": openimages, "lvis": lvis, "objects365": objects365,
-     "roboflow": roboflow, "split": split}[sys.argv[1]](*sys.argv[2:])
+     "roboflow": roboflow, "roboflow-download": roboflow_download, "split": split}[sys.argv[1]](*sys.argv[2:])

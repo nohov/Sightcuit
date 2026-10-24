@@ -27,6 +27,7 @@ Objects365 (val split), maps them to 11 classes and writes
 .venv/bin/python scripts/build_dataset.py openimages   # ~12k images via FiftyOne
 .venv/bin/python scripts/build_dataset.py lvis         # COCO images, fetched one by one
 .venv/bin/python scripts/build_dataset.py objects365   # val patches with towers/projectors
+.venv/bin/python scripts/build_dataset.py roboflow-download  # the 9 ROBOFLOW_SETS; needs ROBOFLOW_API_KEY
 .venv/bin/python scripts/build_dataset.py split        # writes train.txt, val.txt, data.yaml
 .venv/bin/yolo detect train data=datasets/scavscrap/data.yaml model=weights/yolo26n.pt \
   epochs=100 imgsz=640 batch=16 device=mps name=scavscrap
@@ -37,8 +38,9 @@ images where our classes are marked not exhaustively labeled are skipped. Open
 Images and LVIS have no desktop-tower class, so towers in those photos are
 unlabeled. Objects365 is listed as non-commercial: research and hackathon use only.
 
-Roboflow exports (format "YOLOv8" or "YOLO26") merge in with a class mapping;
-unmapped classes are dropped. Then rerun `split`:
+To add another Roboflow export, append it to `ROBOFLOW_SETS`, or import a
+downloaded zip (format "YOLOv8" or "YOLO26") with a class mapping; unmapped
+classes are dropped. Then rerun `split`:
 
 ```sh
 .venv/bin/python scripts/build_dataset.py roboflow "../datasets/Desktop PC.v1i.yolo26.zip" \
