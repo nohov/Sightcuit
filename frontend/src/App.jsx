@@ -3,6 +3,8 @@ import { DEVICES, lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import DeviceModel from "./components/DeviceModels.jsx";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
+import Inventory from "./components/Inventory.jsx";
+import { useInventory } from "./inventory.js";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
@@ -108,7 +110,7 @@ function fitScreen({ slotH, rowW }, ratio, layout) {
   return { screenW, screenH, panelW: screenW + PANEL_CHROME_W, compact };
 }
 
-function RecordingPanel({ frame, sizeHW, layout, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
+function RecordingPanel({ frame, sizeHW, layout, elapsed, paused, onTogglePause, relay, status, onRelayChange, videoRef }) {
   const tracks = frame?.tracks || [];
   const [frameH, frameW] = sizeHW;
   const [sectionRef, space] = useRecordingSpace();
@@ -171,7 +173,7 @@ function RecordingPanel({ frame, sizeHW, layout, elapsed, paused, onTogglePause,
 
           <div className="stage">
             {showVideo && (
-              <img className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+              <img ref={videoRef} crossOrigin="anonymous" className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
 
             {/* Detection boxes, scaled from frame pixels to the drawn frame */}
@@ -522,6 +524,14 @@ export default function App() {
   const layout = sizeHW[0] > sizeHW[1] ? "portrait" : "landscape";
 
   const entries = useMemo(() => devicesInView(frame), [frame]);
+
+  // Every identified device goes into the inventory, with a snapshot from the video.
+  const videoRef = useRef(null);
+  const inventory = useInventory();
+  const { record } = inventory;
+  useEffect(() => {
+    record(entries, sizeHW, videoRef.current);
+  }, [entries, sizeHW, record]);
   const more = hiddenCount(frame);
 
   const recording = (
@@ -535,8 +545,10 @@ export default function App() {
       relay={relay}
       status={paused ? "paused" : status}
       onRelayChange={changeRelay}
+      videoRef={videoRef}
     />
   );
+  const inventoryDrawer = <Inventory items={inventory.items} onClear={inventory.clear} onRemove={inventory.remove} />;
   const modelAndMeasurements = (
     <>
       <ModelPanel entries={entries} more={more} />
@@ -560,6 +572,7 @@ export default function App() {
         <div className="row top">{modelAndMeasurements}</div>
         {bottomRow}
       </div>
+      {inventoryDrawer}
     </div>
   ) : (
     <div className="app">
@@ -569,6 +582,7 @@ export default function App() {
         {modelAndMeasurements}
       </div>
       {bottomRow}
+      {inventoryDrawer}
     </div>
   );
 }

@@ -68,6 +68,16 @@ each, with a second device in view every other cycle, so every screen can be
 tested. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN`
 set a default relay at build time.
 
+## Inventory
+
+The **Inventory** tab at the bottom of the dashboard slides a gallery over the
+page with every device the glasses have identified: a snapshot cropped from
+the video the first time it was seen, Gemini's name and description, its top
+3 metals and measurements, how many separate times it came into view, and
+when it was last seen. One card per product name. The inventory is kept in
+this browser (localStorage, newest 60 items) until **Clear all**; a card's ×
+removes it. With the mock feed there is no video, so cards show the 3D model.
+
 ## Structure
 
 ```text
@@ -75,6 +85,8 @@ src/
   App.jsx                    layout and panels
   devices.js                 per-label device data (placeholders)
   feed.js                    relay connection (video + detections) and mock feed
+  inventory.js               identified-device inventory kept in this browser
+  components/Inventory.jsx   inventory tab and gallery drawer
   components/DeviceModels.jsx  rotating CSS 3D models, one per device
   styles.css                 theme tokens and styles
 ```
