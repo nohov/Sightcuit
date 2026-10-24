@@ -233,20 +233,20 @@ button { font: inherit; }
 .jaw.bl { bottom: -3px; left: -3px; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 3px; }
 .jaw.br { bottom: -3px; right: -3px; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 3px; }
 
-/* Rivet on each jaw */
-.jaw::after {
-  content: "";
+/* A hand tool across each corner, working end pointing outward */
+.tool {
   position: absolute;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #f3e3b5, var(--tool-dark) 70%);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  width: 42px;
+  height: 42px;
+  color: var(--tool);
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.7));
 }
-.jaw.tl::after { top: -5px; left: -5px; }
-.jaw.tr::after { top: -5px; right: -5px; }
-.jaw.bl::after { bottom: -5px; left: -5px; }
-.jaw.br::after { bottom: -5px; right: -5px; }
+.tool svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.tool.tl { top: -27px; left: -27px; transform: rotate(-45deg); }
+.tool.tr { top: -27px; right: -27px; transform: rotate(45deg); }
+.tool.bl { bottom: -27px; left: -27px; transform: rotate(-135deg); }
+.tool.br { bottom: -27px; right: -27px; transform: rotate(135deg); }
+.det-box.pending .tool { opacity: 0.8; }
 
 /* Ruler ticks between the jaws: a long tick every 5th */
 .ruler { position: absolute; opacity: 0.85; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.6)); }
@@ -279,7 +279,8 @@ button { font: inherit; }
   position: absolute;
   left: -3px;
   bottom: 100%;
-  margin-bottom: 9px;
+  margin-bottom: 22px;
+  margin-left: 24px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

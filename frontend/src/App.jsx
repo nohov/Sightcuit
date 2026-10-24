@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DEVICES, lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import DeviceModel from "./components/DeviceModels.jsx";
+import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
@@ -161,7 +162,7 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
                       height: `${((y2 - y1) / frameH) * 100}%`,
                     }}
                   >
-                    {/* Brass caliper frame: riveted corner jaws and ruler ticks along the edges */}
+                    {/* Brass toolkit frame: corner brackets held by hand tools, ruler ticks along the edges */}
                     <span className="ruler top" />
                     <span className="ruler bottom" />
                     <span className="ruler left" />
@@ -170,6 +171,10 @@ function RecordingPanel({ frame, elapsed, paused, onTogglePause, relay, status, 
                     <span className="jaw tr" />
                     <span className="jaw bl" />
                     <span className="jaw br" />
+                    <span className="tool tl"><Wrench /></span>
+                    <span className="tool tr"><Hammer /></span>
+                    <span className="tool bl"><Screwdriver /></span>
+                    <span className="tool br"><Wrench /></span>
                     <span className="det-label mono">
                       <span className="screw" />
                       <Cog size={13} className={`cog tag-cog ${isDeviceLabel(label) ? "" : "fast"}`} />
