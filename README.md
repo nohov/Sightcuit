@@ -1,102 +1,96 @@
-# ScavScrap pretrained recognition evaluation
+# ScavScrap
 
-ScavScrap is evaluating whether an existing object detector can locate five
-electronics families for a later engineering-learning application:
+ScavScrap is the recognition groundwork for an engineering-learning app that
+identifies everyday electronics. Before any app ships, this repository answers
+one question with recorded evidence: **which pretrained detector reliably finds
+these five devices in real photos?**
 
-- `laptop`
-- `desktop_computer_tower`
-- `monitor`
-- `printer`
-- `projector`
+| Class | Definition (canonical text in [`labels/classes.json`](labels/classes.json)) |
+| --- | --- |
+| `laptop` | Portable computer with a permanently attached hinged keyboard base |
+| `phone` | Handheld mobile phone; not a tablet or landline handset |
+| `headphones` | Over- or on-ear headphones with a headband; not earbuds |
+| `smartwatch` | Wrist-worn watch with a digital touch display; not a clock |
+| `speaker` | Standalone loudspeaker enclosure; not one built into another device |
 
-The milestone order is:
+No model is trained or fine-tuned here. Predictions come only from image pixels:
+filenames, folders and ground truth never reach a model.
+
+## Status
+
+| Piece | State |
+| --- | --- |
+| Detection harness, scorer, tests | Done. 51 unit tests, all mocked; none is model inference |
+| Live camera and Meta glasses relay | Ran end to end on real hardware (2026-10-24) |
+| Five-class prompts and configs | Migrated to the class list above; **not yet run on real images** |
+| Scored bake-off | **Blocked.** It needs permitted photos with reviewed ground-truth boxes |
+
+No accuracy claim can be made until the bake-off is scored.
+
+## Candidates in the bake-off
+
+| Run | How it works | Classes covered |
+| --- | --- | --- |
+| **Gemini 3.5 Flash-Lite** (primary) | One API call per image returns labelled boxes | All five |
+| **Cascade** (fallback) | Local YOLO-World proposes boxes, then one Gemini call labels them | All five; recall is capped by YOLO's proposals |
+| YOLO-World S / L / X | Local open-vocabulary detector with five text prompts | All five |
+| YOLO26n COCO | Local baseline | `laptop` and `phone` (from COCO `cell phone`) only |
+
+Every run is scored with the same greedy IoU ≥ 0.5 matching. The winner is
+picked by the decision rule frozen in
+[`evaluation/bakeoff_report_template.md`](evaluation/bakeoff_report_template.md).
+
+## Repository layout
 
 ```text
-pretrained detector evaluation
-→ evidence-based model decision
-→ application integration later
+labels/         class contract (classes.json) and box-labelling guide
+recognition/    runners, frozen model configs, prompts, output schemas
+evaluation/     manifest template, collection rules, scorers, report templates
+app/ios/        ScavRelay: Meta glasses → laptop frame relay (Developer Mode only)
+frontend/       dashboard that renders live detections (placeholder device data)
+tests/          cross-module contract tests
 ```
 
-There is no recognition web app in this milestone. The removed prototype matched
-filenames and did not inspect pixels; it was not computer vision.
+| Document | Read it for |
+| --- | --- |
+| [`DESIGN.md`](DESIGN.md) | Experiment design, support table, stop conditions |
+| [`RUNBOOK.md`](RUNBOOK.md) | Exact commands for every run, scoring and checks |
+| [`AGENTS.md`](AGENTS.md) | Rules for anyone (human or agent) changing this repo |
+| [`evaluation/COLLECTION.md`](evaluation/COLLECTION.md) | How to collect and annotate test photos |
+| [`app/ios/README.md`](app/ios/README.md) | Glasses relay setup |
 
-## YOLO baseline
+## Quickstart
 
-The frozen baseline is a proposed local Ultralytics YOLO11n detection checkpoint
-pretrained on COCO. The exact COCO class list contains `laptop`; it does not
-contain `desktop_computer_tower`, `monitor`, `printer`, or `projector`. COCO's
-`tv` class is deliberately not mapped to `monitor`.
-
-`recognition/yolo_runner.py`:
-
-- requires an existing local weights path, preventing automatic downloads;
-- verifies the weights' embedded class list against `recognition/yolo_model.json`;
-- reads image pixels through the YOLO runtime;
-- records raw detections, original names, scores, `xyxy` pixel boxes, thresholds,
-  runtime version, weights SHA-256, device, command, elapsed time, and errors;
-- never reads expected labels when producing predictions.
-
-## Current blocker
-
-No real inference ran. The inspected environment has no Ultralytics or PyTorch
-runtime, no local YOLO weights, and no project test images. ONNX Runtime is
-installed, but no compatible ONNX weights are present. The experiment status is
-therefore `needs_input`, not complete.
-
-After the owner separately supplies an approved runtime, an existing local
-`yolo11n.pt`, and permitted images in the manifest, the exact run shape is:
+Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
 
 ```sh
-python3 recognition/yolo_runner.py \
-  evaluation/manifest.csv \
-  evaluation/yolo_predictions.jsonl \
-  --weights /absolute/path/to/yolo11n.pt \
-  --confidence 0.25 \
-  --iou 0.70 \
-  --device cpu \
-  --log evaluation/yolo_run.log
+uv sync                        # Ultralytics + CLIP, pinned in uv.lock
+source .venv/bin/activate
+python -m unittest             # 51 tests, no network, no weights
+python -m recognition.yolo_runner --help
 ```
 
-Do not use the symbolic weights name in place of an existing path: Ultralytics
-can otherwise download missing weights automatically.
+Real runs need local weights and, for Gemini, `GEMINI_API_KEY` in the
+environment. See [`RUNBOOK.md`](RUNBOOK.md).
 
-## Gemini vs YOLO bake-off
+## What every run guarantees
 
-COCO covers only one of the five classes, so the model decision is a bake-off
-of detection runs on the same box-annotated photos:
+- **Local weights only.** Runners refuse a missing weights path rather than let
+  Ultralytics download one, and they check the file's embedded class list
+  against the frozen config before inference.
+- **Honest mappings.** A raw class maps to a project class only when the config
+  declares an exact match. COCO `clock` is not `smartwatch`. An unmapped class
+  is recorded as `unsupported`, never as a hit.
+- **Honest outputs.** Detectors produce boxes, not masks. Gemini returns no
+  calibrated confidence, so its records store `null`.
+- **Full provenance.** Each JSONL record keeps the raw model output, original
+  class IDs and names, `xyxy` pixel boxes, weights SHA-256, runtime version,
+  command, thresholds, timing and errors. Output files are written atomically.
+- **Upload consent.** Gemini runs send images to Google. Only images whose
+  provenance notes permit that may be used, and live mode requires
+  `--allow-upload`.
 
-- **Gemini 3.5 Flash-Lite, the primary candidate**
-  (`python3 -m recognition.gemini_runner`, default model): one whole-image call
-  returns labelled boxes.
-- **Cascade, the fallback candidate** (`python3 -m recognition.cascade_runner`):
-  local YOLO-World proposes boxes, then one Gemini call per image labels each
-  box as a target class or `none`. Images with no proposals make no API call,
-  but objects YOLO misses (such as some projectors) cannot be recovered.
-- **Gemini** (`python3 -m recognition.gemini_runner`): cloud API, all five
-  classes from the prompt, boxes but no confidence. Needs `GEMINI_API_KEY` and
-  upload-permitted images.
-- **YOLO-World** (`yolo_runner.py --config recognition/yolo_world_model.json`):
-  local, open-vocabulary text prompts for all five classes.
-- **YOLO11n COCO**: the existing baseline above (laptop only).
+## Licensing note
 
-`python3 -m evaluation.score_detection` scores all runs with one IoU ≥ 0.5
-metric, and `evaluation/bakeoff_report_template.md` holds the frozen decision
-rule. See `RUNBOOK.md` steps 5–6.
-
-## Checks
-
-```sh
-python3 -m unittest recognition.tests.test_yolo_runner recognition.tests.test_vlm_runner \
-  recognition.tests.test_gemini_runner recognition.tests.test_cascade_runner \
-  evaluation.tests.test_score evaluation.tests.test_score_detection tests.test_integration -v
-python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py \
-  recognition/gemini_runner.py recognition/cascade_runner.py \
-  evaluation/score.py evaluation/score_detection.py
-python3 recognition/yolo_runner.py --help
-```
-
-The Qwen3-VL/Ollama files remain only as an unexecuted whole-image classification
-comparison. They do not produce boxes and are not the default baseline.
-
-See `recognition/report.md`, `READINESS.md`, and `RUNBOOK.md` for evidence,
-blockers, and collection/run instructions.
+Ultralytics models and code are AGPL-3.0 or Enterprise licensed; Gemini is used
+under Google's API terms. A license review is needed before product integration.

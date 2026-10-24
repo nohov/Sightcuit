@@ -11,9 +11,6 @@ import math
 import os
 from pathlib import Path
 import platform
-import shlex
-import sys
-import tempfile
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
@@ -21,20 +18,20 @@ from urllib.request import Request, urlopen
 
 from PIL import Image
 
-from recognition.yolo_runner import TARGET_CLASSES, manifest_entries
+from labels import TARGET_CLASSES
+from recognition.runio import atomic_jsonl, start_logging
+from recognition.yolo_runner import manifest_entries
 
 
-PROMPT_VERSION = "gemini-detect-v1"
+PROMPT_VERSION = "gemini-detect-v2"
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 API_VERSION = "v1beta"
 ENDPOINT = "https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent"
 HERE = Path(__file__).resolve().parent
 # Fixed order gives each label a stable raw_class_id, like a detector's class index.
-LABELS = ("laptop", "desktop_computer_tower", "monitor", "printer", "projector")
+LABELS = TARGET_CLASSES
 RETRY_STATUSES = {429, 500, 503}
 Transport = Callable[[dict[str, Any], str, float], dict[str, Any]]
-
-assert set(LABELS) == TARGET_CLASSES
 
 RESPONSE_SCHEMA = {
     "type": "ARRAY",
@@ -165,62 +162,54 @@ def run_manifest(
     if manifest == output:
         raise ValueError("manifest and output paths must differ")
     rows = manifest_entries(manifest)
-    prompt = (HERE / "prompt-gemini-v1.txt").read_text(encoding="utf-8")
-    output.parent.mkdir(parents=True, exist_ok=True)
+    prompt = (HERE / "prompt-gemini-v2.txt").read_text(encoding="utf-8")
 
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=output.parent, delete=False) as destination:
-            temporary_path = Path(destination.name)
-            for row in rows:
-                started = time.perf_counter()
-                raw: Any = None
-                response: dict[str, Any] = {}
-                detections: list[dict[str, Any]] = []
-                image_size = None
-                error = None
-                try:
-                    image_bytes, mime, size = read_image(manifest.parent / row["path"])
-                    image_size = list(size)
-                    response = transport(build_payload(image_bytes, mime, prompt, thinking_level), model, timeout)
-                    raw = response_text(response)
-                    detections = normalize_response(json.loads(raw), size)
-                    logging.info("Detection completed image_id=%s detections=%d", row["image_id"], len(detections))
-                except Exception as exc:
-                    error = f"{type(exc).__name__}: {exc}"
-                    logging.exception("Detection failed for image_id=%s", row["image_id"])
+    with atomic_jsonl(output) as write:
+        for row in rows:
+            started = time.perf_counter()
+            raw: Any = None
+            response: dict[str, Any] = {}
+            detections: list[dict[str, Any]] = []
+            image_size = None
+            error = None
+            try:
+                image_bytes, mime, size = read_image(manifest.parent / row["path"])
+                image_size = list(size)
+                response = transport(build_payload(image_bytes, mime, prompt, thinking_level), model, timeout)
+                raw = response_text(response)
+                detections = normalize_response(json.loads(raw), size)
+                logging.info("Detection completed image_id=%s detections=%d", row["image_id"], len(detections))
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                logging.exception("Detection failed for image_id=%s", row["image_id"])
 
-                record = {
-                    "schema_version": "1.0.0",
-                    "image_id": row["image_id"],
-                    "task": "object_detection",
-                    "model_identifier": (
-                        f"Gemini {model} via generateContent ({PROMPT_VERSION}, "
-                        f"thinking={thinking_level or 'model default'})"
-                    ),
-                    "weights_filename": model,
-                    "weights_sha256": None,
-                    "runtime": "gemini-api",
-                    "runtime_version": API_VERSION,
-                    "model_version": response.get("modelVersion"),
-                    "prompt_version": PROMPT_VERSION,
-                    "usage": response.get("usageMetadata"),
-                    "device": "remote",
-                    "hardware": {"system": platform.system(), "machine": platform.machine()},
-                    "command": command,
-                    "thresholds": {"confidence": None, "iou": None},
-                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
-                    "image_size_hw_pixels": image_size,
-                    "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
-                    "raw_predictions": raw,
-                    "detections": detections,
-                    "error": error,
-                }
-                destination.write(json.dumps(record, separators=(",", ":")) + "\n")
-        os.replace(temporary_path, output)
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
+            record = {
+                "schema_version": "1.0.0",
+                "image_id": row["image_id"],
+                "task": "object_detection",
+                "model_identifier": (
+                    f"Gemini {model} via generateContent ({PROMPT_VERSION}, "
+                    f"thinking={thinking_level or 'model default'})"
+                ),
+                "weights_filename": model,
+                "weights_sha256": None,
+                "runtime": "gemini-api",
+                "runtime_version": API_VERSION,
+                "model_version": response.get("modelVersion"),
+                "prompt_version": PROMPT_VERSION,
+                "usage": response.get("usageMetadata"),
+                "device": "remote",
+                "hardware": {"system": platform.system(), "machine": platform.machine()},
+                "command": command,
+                "thresholds": {"confidence": None, "iou": None},
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "image_size_hw_pixels": image_size,
+                "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
+                "raw_predictions": raw,
+                "detections": detections,
+                "error": error,
+            }
+            write(record)
 
 
 def main() -> None:
@@ -236,11 +225,7 @@ def main() -> None:
     if not os.environ.get("GEMINI_API_KEY"):
         parser.error("GEMINI_API_KEY must be set in the environment")
 
-    log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    command = shlex.join([sys.executable, *sys.argv])
-    logging.info("Starting command: %s", command)
+    command = start_logging(args.output, args.log)
     run_manifest(args.manifest, args.output, args.model, command, args.timeout,
                  thinking_level=args.thinking_level)
 

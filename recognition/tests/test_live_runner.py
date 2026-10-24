@@ -20,7 +20,7 @@ B = (200, 100, 290, 190)
 
 def row(box, confidence=0.9):
     x1, y1, x2, y2 = box
-    return {"name": "printer", "class": 3, "confidence": confidence,
+    return {"name": "speaker", "class": 4, "confidence": confidence,
             "box": {"x1": x1, "y1": y1, "x2": x2, "y2": y2}}
 
 
@@ -37,7 +37,7 @@ class FakePredictor:
 
 
 class FakeTransport:
-    """Labels every region it is sent as printer and remembers each prompt's region lines."""
+    """Labels every region it is sent as speaker and remembers each prompt's region lines."""
 
     def __init__(self, fail_first=False):
         self.calls = []
@@ -49,7 +49,7 @@ class FakeTransport:
         self.calls.append(regions)
         if self.fail_first and len(self.calls) == 1:
             raise RuntimeError("Gemini HTTP 503: overloaded")
-        items = [{"index": i, "label": "printer"} for i in range(len(regions))]
+        items = [{"index": i, "label": "speaker"} for i in range(len(regions))]
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
@@ -157,7 +157,7 @@ class RelayServerTests(unittest.TestCase):
     def setUp(self):
         self.latest = runner.LatestFrame()
         self.shown = {"tracks": [{"track_id": 0, "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0]},
-                                  "label": "printer"}], "image_size": [200, 300]}
+                                  "label": "speaker"}], "image_size": [200, 300]}
         self.server = runner.make_relay_server(("127.0.0.1", 0), "secret", self.latest, self.shown, lambda: True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -189,7 +189,7 @@ class RelayServerTests(unittest.TestCase):
         self.assertEqual(self.latest.frame.shape, (200, 300, 3))
         self.assertIs(self.shown["frame"], self.latest.frame)
         self.assertEqual(body, {"tracks": [{"track_id": 0, "box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
-                                            "label": "printer"}], "image_size_hw_pixels": [200, 300]})
+                                            "label": "speaker"}], "image_size_hw_pixels": [200, 300]})
 
 
 if __name__ == "__main__":

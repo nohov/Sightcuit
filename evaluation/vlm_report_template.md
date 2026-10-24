@@ -32,10 +32,10 @@ Copy values from the generated JSON report; do not calculate them by hand.
 | Class | Precision | Recall | TP | FP | FN |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | laptop | | | | | |
-| desktop_computer_tower | | | | | |
-| monitor | | | | | |
-| printer | | | | | |
-| projector | | | | | |
+| phone | | | | | |
+| headphones | | | | | |
+| smartwatch | | | | | |
+| speaker | | | | | |
 
 - Overall confusion summary:
 - Abstention count and rate:

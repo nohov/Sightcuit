@@ -40,12 +40,12 @@ def gemini_response(items):
 def run(summary, transport):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        Image.new("RGB", (300, 200)).save(root / "definitely-a-printer.png")
+        Image.new("RGB", (300, 200)).save(root / "definitely-a-speaker.png")
         manifest = root / "manifest.csv"
         with manifest.open("w", newline="", encoding="utf-8") as destination:
             writer = csv.DictWriter(destination, fieldnames=("image_id", "path", "expected_outcome"))
             writer.writeheader()
-            writer.writerow({"image_id": "neutral-id", "path": "definitely-a-printer.png",
+            writer.writerow({"image_id": "neutral-id", "path": "definitely-a-speaker.png",
                              "expected_outcome": "GROUND_TRUTH_SENTINEL"})
         output = root / "predictions.jsonl"
         predictor = FakePredictor(summary)
@@ -63,41 +63,41 @@ class CascadeRunnerTests(unittest.TestCase):
 
     def test_gemini_relabels_yolo_boxes_and_drops_none(self):
         summary = [
-            row("desktop computer tower", 1, 0.9, (30, 20, 150, 100)),
-            row("desktop computer tower", 1, 0.4, (200, 100, 290, 190)),
+            row("smartphone", 1, 0.9, (30, 20, 150, 100)),
+            row("smartphone", 1, 0.4, (200, 100, 290, 190)),
         ]
 
         def transport(payload, model, timeout):
             sent = json.dumps(payload)
-            self.assertNotIn("definitely-a-printer", sent)
+            self.assertNotIn("definitely-a-speaker", sent)
             self.assertNotIn("GROUND_TRUTH_SENTINEL", sent)
             self.assertIn("0: [100, 100, 500, 500]", sent)
             self.assertIn("none", json.dumps(payload["generationConfig"]["responseSchema"]))
-            return gemini_response([{"index": 0, "label": "printer"}, {"index": 1, "label": "none"}])
+            return gemini_response([{"index": 0, "label": "speaker"}, {"index": 1, "label": "none"}])
 
         record, predictor = run(summary, transport)
 
         self.assertEqual(predictor.calls, [True])
         self.assertIsNone(record["error"])
         self.assertEqual(record["runtime"], "ultralytics+gemini-api")
-        self.assertEqual([d["project_class"] for d in record["detections"]], ["printer"])
+        self.assertEqual([d["project_class"] for d in record["detections"]], ["speaker"])
         self.assertEqual(record["detections"][0]["box_xyxy_pixels"], [30.0, 20.0, 150.0, 100.0])
-        self.assertEqual([e["gemini_label"] for e in record["raw_predictions"]], ["printer", "none"])
-        self.assertEqual(record["raw_predictions"][0]["proposal"]["raw_class_name"], "desktop computer tower")
+        self.assertEqual([e["gemini_label"] for e in record["raw_predictions"]], ["speaker", "none"])
+        self.assertEqual(record["raw_predictions"][0]["proposal"]["raw_class_name"], "smartphone")
 
     def test_missing_label_is_an_explicit_error(self):
-        summary = [row("printer", 3, 0.9, (30, 20, 150, 100)), row("printer", 3, 0.8, (200, 100, 290, 190))]
-        record, _ = run(summary, lambda *_: gemini_response([{"index": 0, "label": "printer"}]))
+        summary = [row("speaker", 4, 0.9, (30, 20, 150, 100)), row("speaker", 4, 0.8, (200, 100, 290, 190))]
+        record, _ = run(summary, lambda *_: gemini_response([{"index": 0, "label": "speaker"}]))
         self.assertEqual(record["detections"], [])
         self.assertIn("expected 2 labels", record["error"])
         self.assertIsNotNone(record["raw_response"])
 
     def test_parse_labels_rejects_bad_entries(self):
         cases = (
-            ([{"index": 0, "label": "printer"}, {"index": 0, "label": "none"}], 2),
-            ([{"index": 5, "label": "printer"}], 1),
+            ([{"index": 0, "label": "speaker"}, {"index": 0, "label": "none"}], 2),
+            ([{"index": 5, "label": "speaker"}], 1),
             ([{"index": 0, "label": "tv"}], 1),
-            ({"index": 0, "label": "printer"}, 1),
+            ({"index": 0, "label": "speaker"}, 1),
         )
         for raw, count in cases:
             with self.subTest(raw=raw), self.assertRaises(ValueError):

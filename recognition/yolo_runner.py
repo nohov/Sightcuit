@@ -10,25 +10,17 @@ from importlib.metadata import version
 import json
 import logging
 import math
-import os
 from pathlib import Path
 import platform
-import shlex
-import sys
-import tempfile
 import time
 from typing import Any
+
+from labels import TARGET_CLASSES
+from recognition.runio import atomic_jsonl, start_logging
 
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "yolo_model.json"
-TARGET_CLASSES = {
-    "laptop",
-    "desktop_computer_tower",
-    "monitor",
-    "printer",
-    "projector",
-}
 
 
 def load_config(path: Path = DEFAULT_CONFIG) -> dict[str, Any]:
@@ -43,7 +35,7 @@ def validate_config(config: dict[str, Any]) -> None:
     mapping = config.get("raw_to_project_mapping")
     if not isinstance(classes, list) or not classes or not all(isinstance(name, str) for name in classes):
         raise ValueError("expected_builtin_classes must be a non-empty string list")
-    if not isinstance(support, dict) or set(support) != TARGET_CLASSES:
+    if not isinstance(support, dict) or set(support) != set(TARGET_CLASSES):
         raise ValueError("target_support must describe exactly the five project classes")
     if not isinstance(mapping, dict):
         raise ValueError("raw_to_project_mapping must be an object")
@@ -217,61 +209,53 @@ def run_manifest(
         raise ValueError("manifest and output paths must differ")
     rows = manifest_entries(manifest)
     predictor = predictor or UltralyticsPredictor(weights, config)
-    output.parent.mkdir(parents=True, exist_ok=True)
 
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=output.parent, delete=False) as destination:
-            temporary_path = Path(destination.name)
-            for row in rows:
-                image_path = (manifest.parent / row["path"]).resolve()
-                started = time.perf_counter()
-                raw_summary: Any = None
-                error = None
-                detections: list[dict[str, Any]] = []
-                image_size = None
-                try:
-                    if not image_path.is_file():
-                        raise FileNotFoundError(f"image not found: {row['path']}")
-                    result = predictor.predict(image_path, confidence, iou, device)
-                    raw_summary = result["raw_summary"]
-                    image_size = list(result["image_size"])
-                    detections = normalize_summary(
-                        raw_summary, tuple(result["image_size"]), confidence, config
-                    )
-                    logging.info(
-                        "Detection completed image_id=%s detections=%d",
-                        row["image_id"], len(detections),
-                    )
-                except Exception as exc:
-                    error = f"{type(exc).__name__}: {exc}"
-                    logging.exception("Detection failed for image_id=%s", row["image_id"])
+    with atomic_jsonl(output) as write:
+        for row in rows:
+            image_path = (manifest.parent / row["path"]).resolve()
+            started = time.perf_counter()
+            raw_summary: Any = None
+            error = None
+            detections: list[dict[str, Any]] = []
+            image_size = None
+            try:
+                if not image_path.is_file():
+                    raise FileNotFoundError(f"image not found: {row['path']}")
+                result = predictor.predict(image_path, confidence, iou, device)
+                raw_summary = result["raw_summary"]
+                image_size = list(result["image_size"])
+                detections = normalize_summary(
+                    raw_summary, tuple(result["image_size"]), confidence, config
+                )
+                logging.info(
+                    "Detection completed image_id=%s detections=%d",
+                    row["image_id"], len(detections),
+                )
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                logging.exception("Detection failed for image_id=%s", row["image_id"])
 
-                record = {
-                    "schema_version": "1.0.0",
-                    "image_id": row["image_id"],
-                    "task": "object_detection",
-                    "model_identifier": config["model_identifier"],
-                    "weights_filename": weights.name,
-                    "weights_sha256": getattr(predictor, "weights_sha256", None),
-                    "runtime": "ultralytics",
-                    "runtime_version": getattr(predictor, "runtime_version", None),
-                    "device": device,
-                    "hardware": {"system": platform.system(), "machine": platform.machine()},
-                    "command": command,
-                    "thresholds": {"confidence": confidence, "iou": iou},
-                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
-                    "image_size_hw_pixels": image_size,
-                    "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
-                    "raw_predictions": raw_summary,
-                    "detections": detections,
-                    "error": error,
-                }
-                destination.write(json.dumps(record, separators=(",", ":")) + "\n")
-        os.replace(temporary_path, output)
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
+            record = {
+                "schema_version": "1.0.0",
+                "image_id": row["image_id"],
+                "task": "object_detection",
+                "model_identifier": config["model_identifier"],
+                "weights_filename": weights.name,
+                "weights_sha256": getattr(predictor, "weights_sha256", None),
+                "runtime": "ultralytics",
+                "runtime_version": getattr(predictor, "runtime_version", None),
+                "device": device,
+                "hardware": {"system": platform.system(), "machine": platform.machine()},
+                "command": command,
+                "thresholds": {"confidence": confidence, "iou": iou},
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "image_size_hw_pixels": image_size,
+                "box_format": "xyxy pixels: [left, top, right, bottom] in the original image",
+                "raw_predictions": raw_summary,
+                "detections": detections,
+                "error": error,
+            }
+            write(record)
 
 
 def main() -> None:
@@ -289,11 +273,7 @@ def main() -> None:
     config = load_config(args.config)
     confidence = args.confidence if args.confidence is not None else config["thresholds"]["confidence"]
     iou = args.iou if args.iou is not None else config["thresholds"]["iou"]
-    log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    command = shlex.join([sys.executable, *sys.argv])
-    logging.info("Starting command: %s", command)
+    command = start_logging(args.output, args.log)
     try:
         run_manifest(
             args.manifest, args.output, args.weights, config, confidence, iou,

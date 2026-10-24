@@ -19,10 +19,8 @@ The dashboard is built for five detector labels, spelled exactly:
 
 `laptop` · `phone` · `headphones` · `smartwatch` · `speaker`
 
-These are the five classes in `designspec.txt`. The recognition code
-(`labels/classes.json`, prompts, configs) and the YOLO weights still use older
-class lists and need to switch before real detections will match. Any label the dashboard doesn't know
-is shown as "Unrecognized device" instead of breaking the page.
+These are the five classes in `labels/classes.json`. Any label the dashboard
+doesn't know is shown as "Unrecognized device" instead of breaking the page.
 
 Per-device data (dimensions, weight, metal content) lives in
 `src/devices.js`. **All numbers there are placeholders** for layout work and

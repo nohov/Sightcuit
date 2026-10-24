@@ -1,7 +1,7 @@
 import Security
 import SwiftUI
 
-let projectClasses: Set<String> = ["laptop", "desktop_computer_tower", "monitor", "printer", "projector"]
+let projectClasses: Set<String> = ["laptop", "phone", "headphones", "smartwatch", "speaker"]
 
 struct ContentView: View {
   @ObservedObject var glasses: GlassesController

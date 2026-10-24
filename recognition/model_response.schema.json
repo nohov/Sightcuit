@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Electronics Pokédex model response v1",
+  "title": "Electronics Pokédex model response v2",
   "type": "object",
   "properties": {
     "outcome": {
       "type": "string",
       "enum": [
         "laptop",
-        "desktop_computer_tower",
-        "monitor",
-        "printer",
-        "projector",
+        "phone",
+        "headphones",
+        "smartwatch",
+        "speaker",
         "ambiguous",
         "unsupported",
         "unreadable"

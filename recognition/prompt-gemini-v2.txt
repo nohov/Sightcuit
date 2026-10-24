@@ -1,0 +1,10 @@
+Detect every visible instance of these five electronics classes in the image. Return a JSON list with one entry per instance. Each entry has "label" and "box_2d", where box_2d is [ymin, xmin, ymax, xmax] normalized to 0-1000 and tightly encloses the whole visible device.
+
+Labels:
+- laptop: a portable computer with a screen and permanently attached hinged keyboard base visible as one device
+- phone: a handheld mobile phone, typically a slab-shaped smartphone or a feature phone, not a tablet or landline handset
+- headphones: over-ear or on-ear headphones with a headband joining two ear cups, including headsets with a boom microphone
+- smartwatch: a wrist-worn electronic watch with a digital touch display
+- speaker: a standalone loudspeaker enclosure, such as a portable Bluetooth, smart, bookshelf, or computer speaker
+
+Use only visible evidence. Do not label tablets, landline handsets, in-ear earbuds, analog watches, wall or desk clocks, screenless fitness bands, and speakers built into another device. If no instance of the five labels is visible, return an empty list. Do not guess when a device cannot be resolved to one label.

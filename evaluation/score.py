@@ -14,16 +14,10 @@ from pathlib import Path
 import statistics
 from typing import Any
 
+from labels import NON_CLASS_OUTCOMES, TARGET_CLASSES
 
-TARGET_CLASSES = (
-    "laptop",
-    "desktop_computer_tower",
-    "monitor",
-    "printer",
-    "projector",
-)
-SPECIAL_OUTCOMES = ("ambiguous", "unsupported", "unreadable")
-ALLOWED_OUTCOMES = TARGET_CLASSES + SPECIAL_OUTCOMES
+
+ALLOWED_OUTCOMES = TARGET_CLASSES + NON_CLASS_OUTCOMES
 REQUIRED_MANIFEST_FIELDS = (
     "image_id",
     "path",
@@ -43,7 +37,7 @@ REQUIRED_PREDICTION_FIELDS = {
     "error",
     "raw_response",
 }
-PROMPT_VERSION = "electronics-pokedex-v1"
+PROMPT_VERSION = "electronics-pokedex-v2"
 
 
 def load_manifest(path: Path, check_files: bool = False) -> list[dict[str, str]]:

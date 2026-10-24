@@ -14,8 +14,6 @@ import os
 from pathlib import Path
 import platform
 import secrets
-import shlex
-import sys
 import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
@@ -28,6 +26,7 @@ from recognition.cascade_runner import (
     RESPONSE_SCHEMA, parse_labels, region_text,
 )
 from recognition.gemini_runner import API_VERSION, Transport, build_payload, gemini_transport, response_text
+from recognition.runio import start_logging
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
 
 
@@ -35,7 +34,7 @@ from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize
 TRACK_IOU = 0.3
 # A new box this close to, or mostly inside, a box already matched this frame is YOLO re-boxing the same
 # device or a part of it (a screen, a corner), not a new device.
-# shortcut: also hides a small device fully inside a bigger one's box (laptop in front of a monitor);
+# shortcut: also hides a small device fully inside a bigger one's box (phone lying on a laptop);
 # replace with per-class reasoning if multi-device scenes matter.
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
@@ -116,7 +115,7 @@ def run_live(
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
         raise ValueError("confidence and IoU thresholds must be between 0 and 1")
-    template = (HERE / "prompt-cascade-v1.txt").read_text(encoding="utf-8")
+    template = (HERE / "prompt-cascade-v2.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -438,11 +437,7 @@ def main() -> None:
         parser.error("GEMINI_API_KEY must be set in the environment")
 
     config = load_config(args.config)
-    log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    command = shlex.join([sys.executable, *sys.argv])
-    logging.info("Starting command: %s", command)
+    command = start_logging(args.output, args.log)
     predictor = UltralyticsPredictor(args.weights, config)
 
     def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:

@@ -10,39 +10,49 @@
     "iou": 0.7
   },
   "expected_builtin_classes": [
-    "laptop", "desktop computer tower", "computer monitor", "printer", "projector"
+    "laptop", "smartphone", "headphones", "smartwatch", "speaker"
   ],
   "raw_to_project_mapping": {
     "laptop": "laptop",
-    "desktop computer tower": "desktop_computer_tower",
-    "computer monitor": "monitor",
-    "printer": "printer",
-    "projector": "projector"
+    "smartphone": "phone",
+    "headphones": "headphones",
+    "smartwatch": "smartwatch",
+    "speaker": "speaker"
   },
   "target_support": {
     "laptop": {
       "status": "supported_exact",
-      "raw_class_names": ["laptop"],
+      "raw_class_names": [
+        "laptop"
+      ],
       "reason": "Text prompt chosen to name the project class."
     },
-    "desktop_computer_tower": {
+    "phone": {
       "status": "supported_exact",
-      "raw_class_names": ["desktop computer tower"],
+      "raw_class_names": [
+        "smartphone"
+      ],
+      "reason": "Prompt says smartphone, the common visual form of the phone class."
+    },
+    "headphones": {
+      "status": "supported_exact",
+      "raw_class_names": [
+        "headphones"
+      ],
       "reason": "Text prompt chosen to name the project class."
     },
-    "monitor": {
+    "smartwatch": {
       "status": "supported_exact",
-      "raw_class_names": ["computer monitor"],
-      "reason": "Prompt says computer monitor, not tv or display, to match labels/classes.json."
+      "raw_class_names": [
+        "smartwatch"
+      ],
+      "reason": "Prompt says smartwatch, not watch or clock, to match labels/classes.json."
     },
-    "printer": {
+    "speaker": {
       "status": "supported_exact",
-      "raw_class_names": ["printer"],
-      "reason": "Text prompt chosen to name the project class."
-    },
-    "projector": {
-      "status": "supported_exact",
-      "raw_class_names": ["projector"],
+      "raw_class_names": [
+        "speaker"
+      ],
       "reason": "Text prompt chosen to name the project class."
     }
   },

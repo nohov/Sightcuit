@@ -1,0 +1,13 @@
+A local detector proposed numbered regions in this image. Each region is [ymin, xmin, ymax, xmax] normalized to 0-1000:
+
+{regions}
+
+Label every region exactly once. Return a JSON list with one entry per region, each with "index" and "label". "label" must be one of:
+- laptop: a portable computer with a screen and permanently attached hinged keyboard base visible as one device
+- phone: a handheld mobile phone, typically a slab-shaped smartphone or a feature phone, not a tablet or landline handset
+- headphones: over-ear or on-ear headphones with a headband joining two ear cups, including headsets with a boom microphone
+- smartwatch: a wrist-worn electronic watch with a digital touch display
+- speaker: a standalone loudspeaker enclosure, such as a portable Bluetooth, smart, bookshelf, or computer speaker
+- none: the region is not one of those five devices, covers more than one device, or does not mainly contain a single device
+
+Use the whole image for context, but judge only what is inside each region. Use only visible evidence. Tablets, landline handsets, in-ear earbuds, analog watches, wall or desk clocks, screenless fitness bands, and speakers built into another device, furniture, and stands are none. Do not guess: if a region cannot be resolved to one label, answer none.
