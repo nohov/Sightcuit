@@ -1,19 +1,21 @@
-# Electronics Pokédex — recognition experiment design, v0.5
+# Electronics Pokédex — recognition experiment design, v0.6
 
 The future product helps engineering students learn about electronics. The
 current milestone does not build that product. It determines, with recorded
-evidence, whether a pretrained object detector is useful for five device classes.
+evidence, whether a hosted multimodal vision API can recognize five device
+families from a selected photo.
 
 ## Sequence
 
 ```text
-pretrained detector evaluation
-→ evidence-based model decision
+hosted vision API evaluation
+→ evidence-based provider and model decision
 → application integration later
 ```
 
-No application may present a device as visually identified until a pixel-based
-model has run and its result satisfies an accepted mapping policy.
+No application may present a device as recognized until an actual model request
+has run and its response satisfies the fixed output contract. A model response
+is evidence to evaluate, not ground truth.
 
 ## Fixed target contract
 
@@ -23,80 +25,110 @@ model has run and its result satisfies an accepted mapping policy.
 4. `printer`
 5. `projector`
 
-Exact manufacturer, model, internal parts, material content, value, instance
-masks, and multi-device tracking are outside this milestone.
+The model may also return `ambiguous`, `unsupported`, or `unreadable`. Exact
+manufacturer, model, internal parts, material content and value are outside this
+milestone.
 
 ## Baseline
 
-The first proposed baseline is Ultralytics YOLO11n Detect with COCO-pretrained
-weights. It is an object detector: each output is a class, confidence, and
-bounding box. A box is not a mask, and an absent class is unsupported rather
-than an implicit negative classifier for that project class.
+The first baseline is one hosted multimodal vision API called through the
+backend. It receives one orientation-corrected, compressed photo and a frozen
+prompt containing the five class definitions. It must return JSON matching the
+versioned response schema.
 
-The frozen COCO list contains the exact raw class `laptop`. It does not contain
-the project classes `desktop_computer_tower`, `monitor`, `printer`, or
-`projector`. It contains `tv`, which is not mapped to `monitor`. Therefore the
-initial support table is:
+Keep the provider behind a small recognition adapter:
 
-| Project class | YOLO11n COCO support | Mapping |
-| --- | --- | --- |
-| `laptop` | Exact built-in class | `laptop` → `laptop` |
-| `desktop_computer_tower` | Unsupported | none |
-| `monitor` | Unsupported | none; `tv` explicitly rejected |
-| `printer` | Unsupported | none |
-| `projector` | Unsupported | none |
+```python
+recognize(image, allowed_classes) -> RecognitionResult
+```
 
-This limited coverage is an experiment result about the label space, not a
-reason to invent mappings. Later evidence may justify evaluating a different
-pretrained detector, such as an LVIS- or open-vocabulary model, in a separately
-frozen run.
+The exact provider and model ID must be frozen before the first run and recorded
+with every prediction. Changing the provider, model, prompt, schema or image
+processing creates a new experiment version. API credentials remain on the
+backend and must never be included in logs or client code.
+
+This baseline performs whole-image device-family recognition. It does not prove
+localization, detection, segmentation or continuous-video performance. If the
+photo contains several plausible primary devices, the correct response is
+`ambiguous` rather than an invented bounding box or arbitrary selection.
+
+## Response contract
+
+Each successful response normalizes to:
+
+```json
+{
+  "outcome": "laptop",
+  "evidence": "visible portable computer with attached display and keyboard"
+}
+```
+
+`outcome` must be one of the five classes or three abstention outcomes. Evidence
+is a short observable reason and must not contain unverified brand, model or
+internal-component claims. Invalid JSON, an unknown outcome, timeout, rate limit
+or provider error is a request failure; it must not be converted to
+`unsupported` or counted as a correct abstention.
 
 ## Reproducibility contract
 
-Each image record preserves:
+Each prediction record preserves:
 
-- image ID, task, model and local weights filename;
-- SHA-256 of the exact weights;
-- runtime name/version, device, and hardware platform;
-- executed command and confidence/IoU thresholds;
-- elapsed time and explicit error;
-- original image dimensions;
-- raw Ultralytics summary rows;
-- original model class ID/name, confidence, and `xyxy` pixel box;
-- explicit project mapping or `unsupported` status.
+- image ID and SHA-256, without ground truth in the model request;
+- provider, exact model ID, API and adapter versions;
+- prompt and response-schema versions;
+- image dimensions and preprocessing settings;
+- request parameters that affect model behavior;
+- start time, elapsed time, provider request ID when returned, and explicit error;
+- normalized outcome and preserved raw response with secrets removed.
 
-The runner must receive an existing local weights file. It verifies the embedded
-class list before inference and refuses a mismatch. Manifest ground truth and
-provenance are never passed to the model. Filenames provide file locations only
-and never determine predictions.
+The runner writes predictions atomically and retains one record for every
+manifest row, including failures. Filenames provide file locations only and
+never determine predictions.
 
 ## Evaluation inputs
 
 Use 10–20 permitted photos per target class and 20–30 confusing or unsupported
 examples only after collection is approved. Include multiple physical devices,
-viewpoints, lighting, distances, occlusions, clutter, and empty scenes. Group
-related images by physical device and session.
+viewpoints, lighting conditions, distances, occlusions, clutter and empty scenes.
+Group related images by physical device and capture session so they cannot leak
+between splits. Lock the final test manifest before model requests begin.
 
-Detection scoring requires reviewed ground-truth boxes. The existing whole-image
-classification scorer is retained only for the separate VLM comparison and must
-not be used to claim YOLO localization quality.
+Report per-class precision and recall, the complete confusion matrix, abstention
+rate, unsupported-object false acceptance, request failures, and median and p95
+latency. Preserve representative errors and raw responses. Do not report boxes,
+masks or localization metrics for this whole-image API baseline.
 
-## Comparison, not default
+## Later comparisons
 
-Qwen3-VL through Ollama remains a proposed whole-image classifier. It may produce
-one family outcome but not object boxes. It was not executed, and it cannot be
-reported as detection or segmentation.
+YOLO remains a possible later detector when the product requires live boxes,
+tracking or offline inference. Its standard COCO weights directly support only
+`laptop` from this five-class map, so it is not the primary family-recognition
+baseline. Local Qwen3-VL through Ollama remains an unevaluated offline
+alternative. Neither is part of this hosted-API run.
+
+## Privacy and cost controls
+
+- Tell participants that selected photos leave the application backend for the
+  configured vision provider.
+- Record the provider's retention and training-data terms before sending images.
+- Send selected device photos, not continuous video or unrelated frames.
+- Remove images after evaluation according to the approved retention plan.
+- Set an experiment request limit and cost ceiling before enabling paid calls.
+- Retry only transient failures and cap retries so one image cannot spend without
+  bound.
 
 ## Stop conditions
 
-Do not install dependencies, download weights, use paid inference, start cloud
-jobs, collect a large dataset, read credentials, or modify global configuration.
-If runtime, local weights, or permitted images are absent, produce the harness,
-schemas, frozen mapping, tests, and blockers, then stop at `needs_input`.
+This specification change does not enable a paid service or authorize reading
+credentials. If an approved provider, model ID, credentials, request limit,
+retention terms or permitted images are absent, produce the adapter, schema,
+tests and blocker report, then stop before making a request. Do not install local
+model runtimes, download weights, train models, collect a large dataset or change
+global configuration for this milestone.
 
 ## Later application milestone
 
 Only after an evidence-based model decision may a separate application milestone
-add photo capture, educational cards, corrections, and saved collections. Its UI
-must distinguish model detections, user corrections, unsupported classes, and
-failures without presenting guesses as visual recognition.
+add photo capture, educational cards, corrections and saved collections. Its UI
+must distinguish model predictions, user corrections, abstentions and request
+failures without presenting guesses as verified recognition.
