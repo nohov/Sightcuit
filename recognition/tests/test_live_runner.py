@@ -122,5 +122,16 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertTrue(all(r["error"] is None for r in records))
 
 
+class LatestFrameTests(unittest.TestCase):
+    def test_yields_only_newest_frame_and_stops(self):
+        latest = runner.LatestFrame()
+        frames = iter(latest)
+        latest.put("old")
+        latest.put("new")
+        self.assertEqual(next(frames), "new")
+        latest.stop()
+        self.assertEqual(list(frames), [])
+
+
 if __name__ == "__main__":
     unittest.main()

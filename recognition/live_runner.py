@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import shlex
 import sys
+import threading
 import time
 from typing import Any, Callable, Iterable, Iterator
 
@@ -205,7 +206,35 @@ def camera_frames(index: int) -> Iterator[Any]:
         capture.release()
 
 
-def show_tracks(frame: Any, tracks: list[dict[str, Any]]) -> bool:
+class LatestFrame:
+    """Hand the detector only the newest camera frame; frames it was too slow for are dropped."""
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition()
+        self.frame: Any = None
+        self.stopped = False
+
+    def put(self, frame: Any) -> None:
+        with self.condition:
+            self.frame = frame
+            self.condition.notify()
+
+    def stop(self) -> None:
+        with self.condition:
+            self.stopped = True
+            self.condition.notify()
+
+    def __iter__(self) -> Iterator[Any]:
+        while True:
+            with self.condition:
+                self.condition.wait_for(lambda: self.frame is not None or self.stopped)
+                if self.stopped:
+                    return
+                frame, self.frame = self.frame, None
+            yield frame
+
+
+def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
     for track in tracks:
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
         label = track["label"] or "..."
@@ -213,8 +242,44 @@ def show_tracks(frame: Any, tracks: list[dict[str, Any]]) -> bool:
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, f"#{track['track_id']} {label}", (x1, max(y1 - 6, 12)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-    cv2.imshow("scavscrap live (q quits)", frame)
-    return cv2.waitKey(1) & 0xFF != ord("q")
+
+
+def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:
+    """Show every camera frame at camera speed while detection runs on the newest frame in a worker thread.
+
+    Boxes are the last finished detection, so they trail a moving device by up to one inference.
+    """
+    latest = LatestFrame()
+    shown: dict[str, list[dict[str, Any]]] = {"tracks": []}
+    failure: list[BaseException] = []
+
+    def keep(frame: Any, tracks: list[dict[str, Any]]) -> bool:
+        shown["tracks"] = [dict(track) for track in tracks]  # snapshot: the worker keeps mutating the cache
+        return not latest.stopped
+
+    def work() -> None:
+        try:
+            detect(latest, keep)
+        except BaseException as exc:
+            failure.append(exc)
+
+    worker = threading.Thread(target=work, name="live-detector")
+    with closing(camera_frames(camera)) as frames:
+        worker.start()
+        try:
+            for frame in frames:
+                if not worker.is_alive():
+                    break
+                latest.put(frame.copy())
+                draw_tracks(frame, shown["tracks"])
+                cv2.imshow("scavscrap live (q quits)", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+        finally:
+            latest.stop()
+            worker.join()  # may wait for an in-flight inference or Gemini call to finish
+    if failure:
+        raise failure[0]
 
 
 def main() -> None:
@@ -248,15 +313,20 @@ def main() -> None:
     command = shlex.join([sys.executable, *sys.argv])
     logging.info("Starting command: %s", command)
     predictor = UltralyticsPredictor(args.weights, config)
+
+    def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:
+        run_live(
+            frames, args.output, predictor, config, args.model, command,
+            args.proposal_confidence, args.iou, args.device, args.timeout,
+            min_call_interval=args.min_call_interval, show=show, thinking_level=args.thinking_level,
+        )
+
     try:
-        with closing(camera_frames(args.camera)) as frames:
-            run_live(
-                frames, args.output, predictor, config, args.model, command,
-                args.proposal_confidence, args.iou, args.device, args.timeout,
-                min_call_interval=args.min_call_interval,
-                show=None if args.no_display else show_tracks,
-                thinking_level=args.thinking_level,
-            )
+        if args.no_display:
+            with closing(camera_frames(args.camera)) as frames:
+                detect(frames)
+        else:
+            run_with_display(args.camera, detect)
     except KeyboardInterrupt:
         pass
     finally:

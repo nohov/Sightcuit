@@ -91,8 +91,11 @@ set -a; . ./.env; set +a
   --allow-upload --camera 0
 ```
 
-Each JSONL line is one frame; `label_source` is `gemini` on the labelling frame
-and `track_cache` afterwards. Cached labels are not fresh per-frame inference.
+The preview shows every camera frame; detection runs in a background thread on
+the newest frame, so boxes trail a moving device by up to one inference. Each
+JSONL line is one detected frame (skipped frames are not logged); `label_source`
+is `gemini` on the labelling frame and `track_cache` afterwards. Cached labels
+are not fresh per-frame inference.
 
 Whole-image Gemini runs send every image to Google. Set the key in the shell
 only, then smoke-test three images before the full manifest:
