@@ -36,6 +36,9 @@ TRACK_IOU = 0.3
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
 MAX_MISSED = 15
+# A box must be seen this many frames before it is drawn or sent to Gemini: one-frame flickers (a fork read as a
+# phone at 10%) otherwise used most Gemini calls, and each call blocks the next for ~7-15 s.
+MIN_TRACK_FRAMES = 5
 DEFAULT_MIN_CALL_INTERVAL = 2.0
 # Live labels are free text (brand + product family, or a generic type), not the five scored classes.
 PROMPT_VERSION = "live-v1"
@@ -101,9 +104,10 @@ class TrackCache:
                 suppressed.append(proposal)
                 continue
             else:
-                track = self.tracks[self.next_id] = {"track_id": self.next_id, "label": None, "labelled_frame": None}
+                track = self.tracks[self.next_id] = {"track_id": self.next_id, "label": None, "labelled_frame": None,
+                                                     "seen": 0}
                 self.next_id += 1
-            track.update(proposal=proposal, missed=0)
+            track.update(proposal=proposal, missed=0, seen=track["seen"] + 1)
             current.append(track)
         for track_id in unmatched:
             self.tracks[track_id]["missed"] += 1
@@ -129,6 +133,7 @@ def run_live(
     show: Callable[[Any, list[dict[str, Any]]], bool] | None = None,
     thinking_level: str | None = None,
     executor: Executor | None = None,
+    min_track_frames: int = MIN_TRACK_FRAMES,
 ) -> None:
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
@@ -158,7 +163,7 @@ def run_live(
                     raise ValueError("YOLO and camera frame disagree on image size")
                 proposals = normalize_summary(result["raw_summary"], size, proposal_confidence, config)
                 tracks, suppressed = cache.update(sorted(proposals, key=lambda p: -p["confidence"])[:MAX_PROPOSALS])
-                pending = [track for track in tracks if track["label"] is None]
+                pending = [track for track in tracks if track["label"] is None and track["seen"] >= min_track_frames]
                 # Only unlabelled tracks go to Gemini; cached labels cost no API call.
                 if in_flight is None and pending and clock() - last_call >= min_call_interval:
                     last_call = clock()
@@ -278,6 +283,8 @@ class LatestFrame:
 
 def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
     for track in tracks:
+        if track["label"] == "none" or track["seen"] < MIN_TRACK_FRAMES:
+            continue
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
         label = track["label"] or "..."
         color = (128, 128, 128) if label in ("none", "...") else (0, 200, 0)
@@ -334,7 +341,8 @@ def main() -> None:
     parser.add_argument("--camera", type=int, default=0)
     parser.add_argument("--config", type=Path, default=HERE / "scavscrap_v2_model.json")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="pinned Gemini model ID")
-    parser.add_argument("--proposal-confidence", type=float, default=DEFAULT_PROPOSAL_CONFIDENCE)
+    parser.add_argument("--proposal-confidence", type=float,
+                        help="default: the config's confidence threshold (0.25 for the trained detector)")
     parser.add_argument("--iou", type=float)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--timeout", type=float, default=120.0)
@@ -351,6 +359,8 @@ def main() -> None:
         parser.error("GEMINI_API_KEY must be set in the environment")
 
     config = load_config(args.config)
+    proposal_confidence = (config["thresholds"]["confidence"] if args.proposal_confidence is None
+                           else args.proposal_confidence)
     log_path = args.log or args.output.with_suffix(args.output.suffix + ".log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=log_path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -361,7 +371,7 @@ def main() -> None:
     def detect(frames: Iterable[Any], show: Callable[..., bool] | None = None) -> None:
         run_live(
             frames, args.output, predictor, config, args.model, command,
-            args.proposal_confidence, args.iou, args.device, args.timeout,
+            proposal_confidence, args.iou, args.device, args.timeout,
             min_call_interval=args.min_call_interval, show=show, thinking_level=args.thinking_level,
         )
 

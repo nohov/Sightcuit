@@ -79,7 +79,7 @@ class HeldExecutor:
             future.set_result(fn(*args))
 
 
-def run(summaries, transport, min_call_interval=0.0, times=None, executor=None, between=None):
+def run(summaries, transport, min_call_interval=0.0, times=None, executor=None, between=None, min_track_frames=1):
     frames = [np.zeros((200, 300, 3), dtype=np.uint8) for _ in summaries]
     if between:
         frames = (between(index) or frame for index, frame in enumerate(frames))
@@ -88,7 +88,7 @@ def run(summaries, transport, min_call_interval=0.0, times=None, executor=None, 
         output = Path(directory) / "live.jsonl"
         runner.run_live(frames, output, FakePredictor(summaries), CONFIG, "test-model", "unit test",
                         transport=transport, min_call_interval=min_call_interval, clock=clock,
-                        executor=executor or SyncExecutor())
+                        executor=executor or SyncExecutor(), min_track_frames=min_track_frames)
         return [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
 
 
@@ -189,6 +189,22 @@ class LiveRunnerTests(unittest.TestCase):
         self.assertEqual([len(r["detections"]) for r in records], [0, 0, 0, 1])
         self.assertEqual([len(r["raw_predictions"]) for r in records], [1, 2, 2, 2])
         self.assertEqual(records[3]["detections"][0]["label_source"], "gemini")
+
+    def test_flicker_is_never_sent_and_stable_box_waits_for_min_frames(self):
+        transport = FakeTransport()
+        # B flickers for one frame; A stays for three.
+        records = run([[row(A), row(B)], [row(A)], [row(A)]], transport, min_track_frames=3)
+        self.assertEqual([r["api_called"] for r in records], [False, False, True])
+        self.assertEqual(transport.calls, [["0: [100, 100, 500, 500]"]])
+
+    def test_hidden_boxes_are_not_drawn(self):
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0]}
+        runner.draw_tracks(frame, [
+            {"track_id": 0, "label": "none", "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal},
+            {"track_id": 1, "label": None, "seen": 1, "proposal": proposal},
+        ])
+        self.assertEqual(frame.sum(), 0)
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))
