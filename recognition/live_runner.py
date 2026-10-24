@@ -711,7 +711,11 @@ def serve_relay(
     host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
     display: bool = False, narrator: Narrator | None = None,
 ) -> None:
-    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails."""
+    """Run detection on frames POSTed by the iOS glasses relay until Ctrl-C, q, or the detector fails.
+
+    With a narrator, every named track gets a description written in the background; the dashboard receives
+    it in the track's `description` once it is ready.
+    """
     latest = LatestFrame()
     shown: dict[str, Any] = {"tracks": [], "image_size": None, "frame": None, "seq": 0}
     failure: list[BaseException] = []

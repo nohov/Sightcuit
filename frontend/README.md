@@ -54,14 +54,18 @@ The relay serves two read-only endpoints, both needing `?token=`:
 - `/events`: Server-Sent Events, one record per finished detection:
   `frame_index`, `timestamp`, `image_size_hw_pixels` and `tracks`, each with
   `track_id`, `proposal.box_xyxy_pixels`, `proposal.confidence`,
-  `gemini_label` (null while labelling, `none` for a non-target) and
-  `label_source`
+  `gemini_label` (project class; null while labelling, `none` for a
+  non-target), `name` (Gemini's product name), `description` (Gemini's
+  short description once written, else null), `hint` and `label_source`
 
-The dashboard shows the most confident labelled track. The confidence shown
-is the box proposal's, not Gemini's (Gemini returns none).
+Every labelled device in view gets its own model, measurements, description
+and top-3 metal breakdown, up to three devices (most confident first; the
+panels note how many more are in view). The confidence shown is the box
+proposal's, not Gemini's (Gemini returns none).
 
 Without a relay, a mock feed cycles through all five devices, 10 seconds
-each, so every screen can be tested. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN`
+each, with a second device in view every other cycle, so every screen can be
+tested. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN`
 set a default relay at build time.
 
 ## Structure

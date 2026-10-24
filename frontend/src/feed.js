@@ -110,22 +110,34 @@ function subscribeMock(onFrame, onStatus) {
     const x1 = width / 2 - w / 2 + drift;
     const y1 = height / 2 - h / 2 + drift / 2;
 
+    const tracks = [
+      {
+        track_id: deviceIndex + 1,
+        proposal: {
+          box_xyxy_pixels: [x1, y1, x1 + w, y1 + h],
+          confidence: 0.55 + 0.1 * Math.sin(frame / 4),
+        },
+        // The first frames of a new track are unlabelled while Gemini is called.
+        gemini_label: local < 3 ? null : label,
+        label_source: local < 3 ? null : local === 3 ? "gemini" : "track_cache",
+      },
+    ];
+    // Every other cycle a second device is in view too, to exercise the multi-device panels.
+    if (Math.floor(frame / FRAMES_PER_DEVICE) % 2 === 1) {
+      const second = DEVICE_IDS[(deviceIndex + 2) % DEVICE_IDS.length];
+      tracks.push({
+        track_id: deviceIndex + 11,
+        proposal: { box_xyxy_pixels: [90, 380, 330, 620], confidence: 0.48 },
+        gemini_label: local < 5 ? null : second,
+        label_source: local < 5 ? null : local === 5 ? "gemini" : "track_cache",
+      });
+    }
+
     onFrame({
       frame_index: frame,
       timestamp: Date.now() / 1000,
       image_size_hw_pixels: [height, width],
-      tracks: [
-        {
-          track_id: deviceIndex + 1,
-          proposal: {
-            box_xyxy_pixels: [x1, y1, x1 + w, y1 + h],
-            confidence: 0.55 + 0.1 * Math.sin(frame / 4),
-          },
-          // The first frames of a new track are unlabelled while Gemini is called.
-          gemini_label: local < 3 ? null : label,
-          label_source: local < 3 ? null : local === 3 ? "gemini" : "track_cache",
-        },
-      ],
+      tracks,
     });
     frame += 1;
   };

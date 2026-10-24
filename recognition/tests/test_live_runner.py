@@ -402,6 +402,15 @@ class RelayServerTests(unittest.TestCase):
                                              "proposal": {"box_xyxy_pixels": [1.0, 2.0, 3.0, 4.0],
                                                           "confidence": 0.5}}])
 
+    def test_record_passes_each_tracks_description_to_the_dashboard(self):
+        record = runner.dashboard_record({"seq": 5, "image_size": [1, 1], "tracks": [
+            {"track_id": 0, "label": "Apple MacBook", "labelled_frame": 1, "description": "A thin laptop.",
+             "proposal": {"box_xyxy_pixels": [0, 0, 1, 1], "project_class": "laptop"}},
+            {"track_id": 1, "label": "JBL speaker", "labelled_frame": 2,
+             "proposal": {"box_xyxy_pixels": [0, 0, 1, 1], "project_class": "speaker"}},
+        ]})
+        self.assertEqual([t["description"] for t in record["tracks"]], ["A thin laptop.", None])
+
     def test_record_sends_project_class_for_dashboard_and_free_text_name(self):
         def track(label, project_class):
             return {"track_id": 0, "label": label, "labelled_frame": 1, "hint": "show the logo side",
