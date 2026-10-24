@@ -186,7 +186,7 @@ function RecordingPanel({ frame, sizeHW, layout, elapsed, paused, onTogglePause,
               {tracks.map((t) => {
                 const [x1, y1, x2, y2] = t.proposal?.box_xyxy_pixels || [0, 0, 0, 0];
                 const label = t.gemini_label;
-                const name = !label ? "Identifying…" : label === "none" ? "Not a target" : lookup(label).label;
+                const name = !label ? "Identifying…" : label === "none" ? "Not a target" : t.name || lookup(label).label;
                 return (
                   <div
                     key={t.track_id}
@@ -312,7 +312,7 @@ function ParticularsPanel({ device, track, known, activeId }) {
   return (
     <section className="panel particulars">
       <h2>Device Particulars</h2>
-      <div className="device-name">{known ? device.label : waiting ? "Scanning…" : "Unrecognized device"}</div>
+      <div className="device-name">{track?.name || (known ? device.label : waiting ? "Scanning…" : "Unrecognized device")}</div>
       <p className="device-desc">
         {known
           ? "[Short description of the scanned device: type, condition, visible components and anything notable for recovery.]"
