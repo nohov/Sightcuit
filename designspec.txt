@@ -1,24 +1,12 @@
-# Electronics Pokédex — hybrid recognition design, v0.7
+# Electronics Pokédex — technical design specification, v0.8
 
-The future product helps engineering students learn about electronics. The
-current milestone does not build that product. It tests a recognition pipeline
-adapted from Caught in 4K: local catalog matching handles familiar devices and a
-hosted multimodal vision API handles uncertain cases.
+This design adopts the general recognition flow used by Caught in 4K. A fast
+local vision path finds and tracks an object, OpenAI CLIP ViT-B/32 identifies
+known catalog entries, and a hosted vision-language model handles uncertain
+objects. The application then opens reviewed educational content for the
+identified device family.
 
-## Sequence
-
-```text
-CLIP catalog match
-→ hosted vision API fallback when uncertain
-→ evidence-based threshold, provider and model decision
-→ application integration later
-```
-
-No application may present a device as recognized until an actual recognition
-route has run and its response satisfies the fixed output contract. A model
-response is evidence to evaluate, not ground truth.
-
-## Fixed target contract
+The product supports these five device families first:
 
 1. `laptop`
 2. `desktop_computer_tower`
@@ -26,179 +14,230 @@ response is evidence to evaluate, not ground truth.
 4. `printer`
 5. `projector`
 
-The model may also return `ambiguous`, `unsupported`, or `unreadable`. Exact
-manufacturer, model, internal parts, material content and value are outside this
-milestone.
+It may also return `ambiguous`, `unsupported`, or `unreadable`. Brand, exact
+model, internal parts, material content and value require later evidence and are
+not inferred from a family result.
 
-## Adapted recognition architecture
+## 1. Model stack
 
-Caught in 4K uses separate components for localization, catalog recognition and
-unknown-item reasoning. This design preserves that separation while adapting it
-to stationary electronics:
+| Role | Initial model or component | Purpose |
+| --- | --- | --- |
+| Device proposals | YOLO-World v2 with the five device prompts | Find candidate electronics in room frames |
+| Person-carried mode | YOLO11n-pose | Use wrists and hands to crop a device someone is carrying |
+| Tracking | ByteTrack through Ultralytics | Keep one track ID across frames and suppress duplicate discoveries |
+| Primary identification | OpenAI CLIP ViT-B/32 | Compare a device crop with catalog text and reference-image embeddings |
+| Uncertain-item fallback | Hosted multimodal vision API | Classify or abstain when CLIP does not pass its calibrated threshold |
+| Optional outline | FastSAM | Produce a mask when the interface needs an outline rather than a box |
+| Product knowledge | Reviewed learning catalog | Supply the engineering explanation shown to students |
+
+CLIP ViT-B/32 is the primary recognition model, matching Caught in 4K. This is
+embedding comparison, not custom model training. The hosted API is a fallback,
+not the default request for every frame.
+
+Caught in 4K uses YOLO11n-pose because its item is usually in a person's hand.
+That same model is useful only for our person-carried scan mode. A room scan also
+needs proposals for stationary devices, so the initial design uses the
+promptable YOLO-World path already supported in their worker. Both proposal
+modes feed the same CLIP catalog.
+
+Standard COCO YOLO weights are not the device-family classifier. Their built-in
+labels directly cover only `laptop` from the five-class map and must not silently
+map `tv` to `monitor`.
+
+## 2. End-to-end flow
 
 ```mermaid
 flowchart LR
-    A[Selected device photo or crop] --> B[CLIP ViT-B/32]
-    B --> C{Catalog score passes calibrated threshold?}
-    C -->|Yes| D[Catalog family result]
-    C -->|No| E[Hosted vision API]
-    E --> F[Structured family result or abstention]
-    D --> G[Result normalization]
-    F --> G
-    G --> H[Reviewed learning catalog]
+    A[Camera frames] --> B[Device proposals]
+    B --> C[ByteTrack tracks]
+    C --> D[Best crop per track]
+    D --> E[CLIP ViT-B/32]
+    E --> F{Catalog threshold passed?}
+    F -->|Yes| G[Catalog family]
+    F -->|No| H[Hosted vision API]
+    H --> I[Family or abstention]
+    G --> J[Normalize result]
+    I --> J
+    J --> K[Reviewed learning card]
+    J --> L[Red box or optional mask]
 ```
 
-- **CLIP catalog path:** OpenAI CLIP ViT-B/32 compares the device crop with
-  frozen class descriptions and, when available, approved reference photos. It
-  performs embedding comparison; it is not custom training.
-- **Hosted API fallback:** one hosted multimodal model receives the selected crop
-  and frozen five-class schema only when CLIP does not pass its calibrated
-  threshold. It returns structured JSON or abstains.
-- **Learning catalog:** the recognized family selects reviewed educational
-  content. The vision model does not generate the published lesson.
-- **Localization layer:** the photo experiment asks the user to center one
-  device. Future room scanning adds an evaluated open-vocabulary or
-  class-agnostic detector and tracker before CLIP. Caught in 4K's YOLO pose model
-  finds people and hands; that exact proposal method does not apply to stationary
-  campus devices.
-- **Optional masks:** add a segmentation model such as FastSAM only if the
-  interface requires object outlines. A detection box must not be presented as a
-  mask.
+Runtime behavior:
 
-Standard COCO YOLO weights directly support only `laptop` from this five-class
-map. They are therefore unsuitable as the sole family recognizer.
+1. The camera supplies frames to the selected proposal mode.
+2. ByteTrack groups repeated boxes into a stable track.
+3. The client or edge worker retains several clear crops and selects the best
+   crop using size, sharpness, visibility and proposal confidence.
+4. CLIP embeds that crop and compares it with the frozen catalog gallery.
+5. A catalog result is accepted only if its score and separation from the
+   runner-up satisfy thresholds frozen on development data.
+6. An uncertain track sends its best face-free device crops to the hosted API
+   once. Continuous video and unrelated full frames are not API inputs.
+7. The backend validates the structured result, retrieves the reviewed learning
+   card and returns the result to the client.
+8. The tracker reuses that answer while the object remains in view, preventing
+   repeated API calls and duplicate Pokédex entries.
 
-## Bounded experiment
+The first implementation may run this flow on a captured photo with one centered
+device. The room-scanning version activates proposals, tracking and duplicate
+suppression without changing the recognition contract.
 
-Compare two frozen routes on the same locked test manifest:
+## 3. CLIP catalog and enrollment
 
-1. Hosted API for every image.
-2. CLIP catalog first, with the same hosted API used only below the threshold.
-
-This comparison measures whether the catalog path preserves recognition quality
-while reducing API calls, latency and image disclosure. Tune the CLIP threshold
-on development images and freeze it before the final test. Never tune from the
-test results.
-
-Keep both routes behind one recognition adapter:
-
-```python
-recognize(image, allowed_classes) -> RecognitionResult
-```
-
-The CLIP checkpoint, catalog descriptions, reference gallery, similarity rule,
-threshold, API provider and API model ID must be frozen before the final run and
-recorded with every prediction. Changing any of them creates a new experiment
-version. API credentials remain on the backend and must never be included in
-logs or client code.
-
-This experiment performs whole-image device-family recognition. It does not prove
-localization, detection, segmentation or continuous-video performance. If the
-photo contains several plausible primary devices, the correct response is
-`ambiguous` rather than an invented bounding box or arbitrary selection.
-
-## Response contract
-
-Each successful response normalizes to:
+The catalog contains one versioned entry per supported family:
 
 ```json
 {
-  "outcome": "laptop",
-  "source": "clip_catalog",
-  "score": 0.31,
-  "evidence": null
+  "family": "projector",
+  "descriptions": [
+    "a classroom digital projector",
+    "an electronic projector that casts an image onto a screen"
+  ],
+  "reference_images": [
+    "catalog/projector/reference-001.jpg"
+  ]
 }
 ```
 
-`source` is `clip_catalog` or `hosted_api`. `outcome` must be one of the five
-classes or three abstention outcomes. A score retains the producing model's raw
-similarity or confidence value and is not presented as a probability. CLIP does
-not generate visual reasoning, so its evidence is null. Hosted evidence is a
-short observable reason and must not contain unverified brand, model or
-internal-component claims. Invalid JSON, an unknown outcome, timeout, rate limit
-or provider error is a request failure; it must not be converted to `unsupported`
-or counted as a correct abstention.
+At catalog build time, CLIP ViT-B/32 embeds the descriptions and approved
+reference images. At recognition time, it embeds only the selected crop and
+compares normalized vectors with cosine similarity. Store the gallery version,
+CLIP checkpoint hash, preprocessing version and source record for every
+embedding.
 
-## Reproducibility contract
+Reference enrollment improves the catalog without retraining CLIP. Enrollment
+images must be reviewed, cover different physical devices and viewpoints, and
+remain separate from final test devices. Adding an image or changing wording
+creates a new catalog version and requires reevaluation.
 
-Each prediction record preserves:
+## 4. Hosted API fallback
 
-- image ID and SHA-256, without ground truth in the model request;
-- provider, exact model ID and API version when the hosted route runs, plus the
-  adapter version for every record;
-- CLIP checkpoint identifier and hash, catalog version, gallery manifest,
-  similarity rule and frozen threshold;
-- selected route, CLIP candidates and raw similarity scores;
-- prompt and response-schema versions;
-- image dimensions and preprocessing settings;
-- request parameters that affect model behavior;
-- start time, elapsed time, provider request ID when returned, and explicit error;
-- normalized outcome and preserved raw response with secrets removed.
+The fallback receives one to several selected device crops and the fixed class
+definitions. It must return JSON matching the response schema. The exact
+provider and model ID are configuration frozen for each evaluation or release.
 
-The runner writes predictions atomically and retains one record for every
-manifest row, including failures. Filenames provide file locations only and
-never determine predictions.
+```json
+{
+  "status": "identified",
+  "family": "projector",
+  "evidence": "A projection lens and ceiling-mount body are visible."
+}
+```
 
-## Evaluation inputs
+Allowed statuses are `identified`, `ambiguous`, `unsupported`, and `unreadable`.
+An identified response must use one of the five family IDs. Invalid JSON,
+unknown labels, timeouts, rate limits and provider failures are request failures;
+they are not converted into `unsupported` results.
 
-Use 10–20 permitted photos per target class and 20–30 confusing or unsupported
-examples only after collection is approved. Include multiple physical devices,
-viewpoints, lighting conditions, distances, occlusions, clutter and empty scenes.
-Group related images by physical device and capture session so they cannot leak
-between splits. Reference-gallery images come only from development devices; do
-not enroll the physical devices reserved for the final test. Lock the final test
-manifest before model requests begin.
+Keep API credentials on the backend. Record provider, exact model ID, prompt
+version, response-schema version, latency, provider request ID when returned,
+normalized result and the raw response with secrets removed.
 
-Report each route separately and end to end: per-class precision and recall, the
-complete confusion matrix, abstention rate, unsupported-object false acceptance,
-API fallback rate, request failures, and median and p95 latency. Also report API
-requests avoided without treating avoidance as success. Preserve representative
-errors and raw responses. Do not report boxes, masks or localization metrics for
-this whole-image experiment.
+## 5. Recognition result contract
 
-## Later room-scanning path
+```typescript
+type RecognitionResult = {
+  trackId: string | null;
+  status: "identified" | "ambiguous" | "unsupported" | "unreadable";
+  family: "laptop" | "desktop_computer_tower" | "monitor" | "printer" | "projector" | null;
+  source: "clip_catalog" | "hosted_api";
+  score: number | null;
+  candidates: Array<{ family: string; score: number | null }>;
+  box: [number, number, number, number] | null;
+  mask: Array<[number, number]> | null;
+  modelVersions: Record<string, string>;
+  catalogVersion: string;
+};
+```
 
-When the product requires live boxes, run localization and tracking on device or
-at the edge, retain the best crop per track, then send that crop through the same
-CLIP/API cascade. Evaluate an open-vocabulary detector against all five classes
-before selecting it. Do not send every video frame to the hosted API. Local
-Qwen3-VL through Ollama remains an unevaluated offline fallback and is outside
-the current experiment.
+CLIP similarity and detector confidence are retained with their origin. Neither
+is displayed as a calibrated probability unless calibration has been measured.
+A box is never presented as a segmentation mask. Whole-image API classification
+without coordinates does not create a box.
 
-## Privacy and cost controls
+## 6. Learning layer
 
-- Tell participants that selected photos leave the application backend for the
-  configured vision provider.
-- Record the provider's retention and training-data terms before sending images.
-- Send selected device photos, not continuous video or unrelated frames.
-- Remove images after evaluation according to the approved retention plan.
-- Set an experiment request limit and cost ceiling before enabling paid calls.
-- Retry only transient failures and cap retries so one image cannot spend without
-  bound.
+Recognition selects a reviewed family-level learning card. The card explains:
 
-## Stop conditions
+- what the device does;
+- its typical inputs and outputs;
+- its operating process;
+- typical major components and their functions;
+- relevant engineering concepts;
+- an observation activity and comprehension question;
+- sources and content revision.
 
-This specification change does not enable a paid service, download CLIP weights,
-or authorize reading credentials. If an approved provider, model ID, credentials, request limit,
-retention terms or permitted images are absent, produce the adapter, schema,
-tests and blocker report, then stop before making a request. Do not install local
-model runtimes, download weights, train models, collect a large dataset or change
-global configuration for this milestone.
+The hosted vision model does not write published learning content during a scan.
+If no approved card exists, the interface reports that educational coverage is
+pending. A user correction changes the selected family only after confirmation
+and is preserved as feedback rather than rewritten as the model prediction.
 
-## Later application milestone
+## 7. Evaluation
 
-Only after an evidence-based model decision may a separate application milestone
-add photo capture, educational cards, corrections and saved collections. Its UI
-must distinguish model predictions, user corrections, abstentions and request
-failures without presenting guesses as verified recognition.
+Use the same locked manifests to compare:
 
-## Reference implementation studied
+1. CLIP text descriptions only.
+2. CLIP text plus reference-image enrollment.
+3. Hosted API only.
+4. The complete CLIP-first/API-fallback cascade.
+
+Tune proposal, CLIP acceptance and runner-up separation thresholds using
+development devices only. Keep physical devices, capture sessions and locations
+separate across development and final test sets. Include all five classes,
+multiple devices and viewpoints, confusing electronics and empty scenes.
+
+Report:
+
+- proposal recall and false proposals for room scanning;
+- per-class recognition precision and recall;
+- complete confusion matrix and abstention rate;
+- unsupported-object false acceptance;
+- CLIP acceptance and API fallback rates;
+- duplicate discoveries per physical object;
+- median and p95 latency by stage;
+- hosted requests and estimated cost per accepted result;
+- box quality and mask quality only when those outputs actually run.
+
+Preserve raw proposals, CLIP candidates and similarities, API responses, final
+predictions, commands, model versions and representative failures. An API call
+avoided is a cost result, not an accuracy success.
+
+## 8. Privacy and operations
+
+- Process localization, tracking and CLIP locally or at the edge when the target
+  hardware can support them.
+- Send only selected device crops to the hosted provider.
+- Document the provider's image-retention and model-training terms.
+- Keep faces and unrelated people out of API crops; reject a crop if redaction
+  cannot be verified.
+- Set request, retry and spending limits before enabling the hosted path.
+- Cache a fallback answer by track and image hash for the active session.
+- Treat saving a discovery and donating an image to a dataset as separate user
+  choices.
+
+## 9. Implementation order
+
+1. Build and test the CLIP catalog on captured single-device photos.
+2. Add the structured hosted API fallback and compare the four evaluation routes.
+3. Add YOLO-World proposals and ByteTrack for room video.
+4. Add optional FastSAM masks only if boxes are insufficient for the interface.
+5. Connect recognized families to approved learning cards.
+6. Run an unseen-campus walkthrough and lock the release report.
+
+This specification does not itself enable a paid service, download model weights
+or authorize reading credentials. Record licenses, exact artifacts, provider
+terms and costs before implementation. Do not claim accuracy, latency or mobile
+performance until logs from the target hardware exist.
+
+## 10. Reference implementation
 
 - Caught in 4K architecture and model roles:
   https://github.com/Ishan-Wakade/Caught_in_4K#technology
-- Caught in 4K demo enrollment and fallback procedure:
+- Caught in 4K demo enrollment and fallback flow:
   https://github.com/Ishan-Wakade/Caught_in_4K/blob/main/docs/demo/shot-list.md
-- Caught in 4K hosted-model routing notes:
+- Caught in 4K hosted-provider routing:
   https://github.com/Ishan-Wakade/Caught_in_4K/blob/main/docs/chalk.md
-- OpenAI CLIP implementation:
+- OpenAI CLIP:
   https://github.com/openai/CLIP
+- Ultralytics YOLO-World:
+  https://docs.ultralytics.com/models/yolo-world/
