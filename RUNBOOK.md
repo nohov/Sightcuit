@@ -49,19 +49,55 @@ Confirm the recorded weights SHA-256, runtime version, device, command,
 thresholds, timing, raw class names, confidence values, and `xyxy` boxes.
 Unsupported raw classes remain in `raw_predictions` and have no project mapping.
 
-## 5. Score only after box annotations exist
+## 5. Bake-off runs (owner-approved exceptions in `AGENTS.md`)
 
-The current `evaluation/score.py` validates manifests and scores the separate
-whole-image VLM output. It does not score bounding boxes. Add or approve a
-detection scorer only with a frozen ground-truth box format; until then, inspect
-YOLO outputs without claiming detection precision or recall.
+YOLO-World uses the same runner with its own frozen config. Its weights
+(`yolov8s-worldv2.pt`) and the CLIP text encoder that `set_classes` needs are an
+owner-run, one-time download:
+
+```sh
+python3 recognition/yolo_runner.py \
+  evaluation/manifest.csv \
+  evaluation/yolo_world_predictions.jsonl \
+  --weights /absolute/path/to/yolov8s-worldv2.pt \
+  --config recognition/yolo_world_model.json \
+  --device cpu
+```
+
+Gemini sends each image to Google. Set the key in the shell only, then smoke-test
+three images before the full manifest:
+
+```sh
+export GEMINI_API_KEY=...   # never commit or log
+python3 -m recognition.gemini_runner \
+  evaluation/manifest.csv \
+  evaluation/gemini_predictions.jsonl \
+  --model gemini-2.5-flash
+```
+
+## 6. Score only after box annotations exist
+
+Ground-truth boxes follow the frozen format in `evaluation/COLLECTION.md`. Score
+every run together:
+
+```sh
+python3 -m evaluation.score_detection evaluation/manifest.csv \
+  evaluation/gemini_predictions.jsonl \
+  evaluation/yolo_world_predictions.jsonl \
+  evaluation/yolo_predictions.jsonl \
+  --json evaluation/bakeoff_results.json
+```
+
+Paste the output into a copy of `evaluation/bakeoff_report_template.md` and
+apply its frozen decision rule. `evaluation/score.py` remains the whole-image
+VLM scorer only.
 
 ## Checks
 
 ```sh
-python3 -m unittest recognition.tests.test_yolo_runner -v
-python3 -m unittest recognition.tests.test_vlm_runner -v
-python3 -m unittest evaluation.tests.test_score -v
-python3 -m unittest tests.test_integration -v
-python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py evaluation/score.py
+python3 -m unittest recognition.tests.test_yolo_runner recognition.tests.test_vlm_runner \
+  recognition.tests.test_gemini_runner evaluation.tests.test_score \
+  evaluation.tests.test_score_detection tests.test_integration -v
+python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py \
+  recognition/gemini_runner.py evaluation/score.py evaluation/score_detection.py
 ```

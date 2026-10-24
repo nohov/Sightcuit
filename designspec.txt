@@ -87,10 +87,25 @@ Qwen3-VL through Ollama remains a proposed whole-image classifier. It may produc
 one family outcome but not object boxes. It was not executed, and it cannot be
 reported as detection or segmentation.
 
+## Gemini vs YOLO bake-off
+
+The owner approved a detection bake-off on one reviewed, box-annotated test set:
+
+| Run | Runner | Config |
+| --- | --- | --- |
+| Gemini | `recognition/gemini_runner.py` | pinned `--model`, `prompt-gemini-v1.txt` |
+| YOLO-World | `recognition/yolo_runner.py` | `yolo_world_model.json` (5 text prompts) |
+| YOLO11n COCO | `recognition/yolo_runner.py` | `yolo_model.json` (baseline, laptop only) |
+
+`evaluation/score_detection.py` scores every run with the same greedy IoU ≥ 0.5
+matching. The decision rule is frozen in `evaluation/bakeoff_report_template.md`
+before any run.
+
 ## Stop conditions
 
 Do not install dependencies, download weights, use paid inference, start cloud
-jobs, collect a large dataset, read credentials, or modify global configuration.
+jobs, collect a large dataset, read credentials, or modify global configuration,
+except for the owner-approved bake-off exceptions in `AGENTS.md`.
 If runtime, local weights, or permitted images are absent, produce the harness,
 schemas, frozen mapping, tests, and blockers, then stop at `needs_input`.
 

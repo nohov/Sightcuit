@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scavscrap.local/schemas/yolo-prediction-v1.json",
-  "title": "ScavScrap raw YOLO detection record",
+  "title": "ScavScrap raw detection record (YOLO or Gemini)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,8 +17,11 @@
     "model_identifier": {"type": "string", "minLength": 1},
     "weights_filename": {"type": "string", "minLength": 1},
     "weights_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
-    "runtime": {"const": "ultralytics"},
+    "runtime": {"enum": ["ultralytics", "gemini-api"]},
     "runtime_version": {"type": ["string", "null"]},
+    "model_version": {"type": ["string", "null"]},
+    "prompt_version": {"type": "string"},
+    "usage": {"type": ["object", "null"]},
     "device": {"type": "string"},
     "hardware": {
       "type": "object",
@@ -32,8 +35,8 @@
       "additionalProperties": false,
       "required": ["confidence", "iou"],
       "properties": {
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-        "iou": {"type": "number", "minimum": 0, "maximum": 1}
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "iou": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
       }
     },
     "elapsed_ms": {"type": "number", "minimum": 0},
@@ -42,7 +45,7 @@
       "items": {"type": "integer", "minimum": 1}
     },
     "box_format": {"const": "xyxy pixels: [left, top, right, bottom] in the original image"},
-    "raw_predictions": {"type": ["array", "null"]},
+    "raw_predictions": {"type": ["array", "string", "null"]},
     "detections": {
       "type": "array",
       "items": {
@@ -52,7 +55,7 @@
         "properties": {
           "raw_class_id": {"type": "integer", "minimum": 0},
           "raw_class_name": {"type": "string"},
-          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
           "box_xyxy_pixels": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
           "project_class": {"type": ["string", "null"]},
           "mapping_status": {"enum": ["mapped", "unsupported"]}

@@ -60,14 +60,30 @@ python3 recognition/yolo_runner.py \
 Do not use the symbolic weights name in place of an existing path: Ultralytics
 can otherwise download missing weights automatically.
 
+## Gemini vs YOLO bake-off
+
+COCO covers only one of the five classes, so the model decision is a bake-off
+of three detection runs on the same box-annotated photos:
+
+- **Gemini** (`python3 -m recognition.gemini_runner`): cloud API, all five
+  classes from the prompt, boxes but no confidence. Needs `GEMINI_API_KEY` and
+  upload-permitted images.
+- **YOLO-World** (`yolo_runner.py --config recognition/yolo_world_model.json`):
+  local, open-vocabulary text prompts for all five classes.
+- **YOLO11n COCO**: the existing baseline above (laptop only).
+
+`python3 -m evaluation.score_detection` scores all runs with one IoU ≥ 0.5
+metric, and `evaluation/bakeoff_report_template.md` holds the frozen decision
+rule. See `RUNBOOK.md` steps 5–6.
+
 ## Checks
 
 ```sh
-python3 -m unittest recognition.tests.test_yolo_runner -v
-python3 -m unittest recognition.tests.test_vlm_runner -v
-python3 -m unittest evaluation.tests.test_score -v
-python3 -m unittest tests.test_integration -v
-python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py evaluation/score.py
+python3 -m unittest recognition.tests.test_yolo_runner recognition.tests.test_vlm_runner \
+  recognition.tests.test_gemini_runner evaluation.tests.test_score \
+  evaluation.tests.test_score_detection tests.test_integration -v
+python3 -m py_compile recognition/yolo_runner.py recognition/vlm_runner.py \
+  recognition/gemini_runner.py evaluation/score.py evaluation/score_detection.py
 python3 recognition/yolo_runner.py --help
 ```
 

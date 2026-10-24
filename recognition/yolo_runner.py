@@ -146,6 +146,9 @@ class UltralyticsPredictor:
         self.weights = weights.resolve()
         self.weights_sha256 = sha256_file(self.weights)
         self.model = YOLO(str(self.weights), task="detect")
+        if config.get("open_vocabulary"):
+            # Text prompts become the class list, so the check below verifies they took effect.
+            self.model.set_classes(config["expected_builtin_classes"])
         names = self.model.names
         actual_classes = [names[index] for index in range(len(names))]
         if actual_classes != config["expected_builtin_classes"]:
