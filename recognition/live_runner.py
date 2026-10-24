@@ -20,8 +20,7 @@ from typing import Any, Callable, Iterable, Iterator
 import cv2
 
 from recognition.cascade_runner import (
-    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, LABELS, MAX_PROPOSALS, PROMPT_VERSION,
-    RESPONSE_SCHEMA, parse_labels, region_text,
+    DEFAULT_CONFIG, DEFAULT_MODEL, DEFAULT_PROPOSAL_CONFIDENCE, HERE, MAX_PROPOSALS, parse_labels, region_text,
 )
 from recognition.gemini_runner import API_VERSION, Transport, build_payload, gemini_transport, response_text
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
@@ -37,6 +36,16 @@ DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
 MAX_MISSED = 15
 DEFAULT_MIN_CALL_INTERVAL = 2.0
+# Live labels are free text (brand + product family, or a generic type), not the five scored classes.
+PROMPT_VERSION = "live-v1"
+RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {"index": {"type": "INTEGER"}, "label": {"type": "STRING"}},
+        "required": ["index", "label"],
+    },
+}
 
 
 def box_area(box: list[float]) -> float:
@@ -112,7 +121,7 @@ def run_live(
     iou = config["thresholds"]["iou"] if iou is None else iou
     if not 0 <= proposal_confidence <= 1 or not 0 <= iou <= 1:
         raise ValueError("confidence and IoU thresholds must be between 0 and 1")
-    template = (HERE / "prompt-cascade-v1.txt").read_text(encoding="utf-8")
+    template = (HERE / "prompt-live-v1.txt").read_text(encoding="utf-8")
     cache = TrackCache()
     last_call = -math.inf
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +158,8 @@ def run_live(
                         model, timeout,
                     )
                     raw_response = response_text(response)
-                    for track, label in zip(pending, parse_labels(json.loads(raw_response), len(pending))):
+                    labels = parse_labels(json.loads(raw_response), len(pending), allowed=None)
+                    for track, label in zip(pending, labels):
                         track["label"], track["labelled_frame"] = label, frame_index
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
@@ -191,14 +201,15 @@ def run_live(
                 "raw_response": raw_response,
                 "detections": [{
                     "track_id": entry["track_id"],
-                    "raw_class_id": LABELS.index(entry["gemini_label"]),
-                    "raw_class_name": entry["gemini_label"],
+                    "label": entry["gemini_label"],
+                    "raw_class_id": entry["proposal"]["raw_class_id"],
+                    "raw_class_name": entry["proposal"]["raw_class_name"],
                     "confidence": None,
                     "box_xyxy_pixels": entry["proposal"]["box_xyxy_pixels"],
-                    "project_class": entry["gemini_label"],
-                    "mapping_status": "mapped",
+                    "project_class": entry["proposal"]["project_class"],
+                    "mapping_status": entry["proposal"]["mapping_status"],
                     "label_source": entry["label_source"],
-                } for entry in entries if entry["gemini_label"] in LABELS],
+                } for entry in entries if entry["gemini_label"] not in (None, "none")],
                 "error": error,
             }
             destination.write(json.dumps(record, separators=(",", ":")) + "\n")

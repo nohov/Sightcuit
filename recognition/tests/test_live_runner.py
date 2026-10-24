@@ -35,9 +35,10 @@ class FakePredictor:
 class FakeTransport:
     """Labels every region it is sent as printer and remembers each prompt's region lines."""
 
-    def __init__(self, fail_first=False):
+    def __init__(self, fail_first=False, label="printer"):
         self.calls = []
         self.fail_first = fail_first
+        self.label = label
 
     def __call__(self, payload, model, timeout):
         prompt = payload["contents"][0]["parts"][1]["text"]
@@ -45,7 +46,7 @@ class FakeTransport:
         self.calls.append(regions)
         if self.fail_first and len(self.calls) == 1:
             raise RuntimeError("Gemini HTTP 503: overloaded")
-        items = [{"index": i, "label": "printer"} for i in range(len(regions))]
+        items = [{"index": i, "label": self.label} for i in range(len(regions))]
         return {"candidates": [{"content": {"parts": [{"text": json.dumps(items)}]}}]}
 
 
@@ -129,6 +130,22 @@ class LiveRunnerTests(unittest.TestCase):
                       min_call_interval=2.0, times=[0, 0, 1, 2, 2])
         self.assertEqual([r["api_called"] for r in records], [True, False, True])
         self.assertIsNone(records[1]["raw_predictions"][1]["label_source"])
+
+    def test_free_text_label_is_kept_with_detector_class(self):
+        records = run([[row(A)]], FakeTransport(label="  Apple MacBook "))
+        detection = records[0]["detections"][0]
+        self.assertEqual(detection["label"], "Apple MacBook")
+        self.assertEqual(detection["raw_class_name"], "printer")
+
+    def test_none_label_is_not_a_detection(self):
+        records = run([[row(A)]], FakeTransport(label="none"))
+        self.assertEqual(records[0]["detections"], [])
+        self.assertEqual(records[0]["raw_predictions"][0]["gemini_label"], "none")
+
+    def test_empty_or_overlong_label_is_an_error(self):
+        for label in ("  ", "x" * 61):
+            records = run([[row(A)]], FakeTransport(label=label))
+            self.assertIn("invalid label", records[0]["error"])
 
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))

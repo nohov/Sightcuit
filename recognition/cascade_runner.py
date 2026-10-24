@@ -30,6 +30,7 @@ DEFAULT_PROPOSAL_CONFIDENCE = 0.1
 # shortcut: keeps the prompt bounded on cluttered scenes; raise it if crowded scenes lose recall.
 MAX_PROPOSALS = 20
 CASCADE_LABELS = (*LABELS, "none")
+MAX_FREE_LABEL_CHARS = 60
 RESPONSE_SCHEMA = {
     "type": "ARRAY",
     "items": {
@@ -55,8 +56,8 @@ def region_text(proposals: list[dict[str, Any]], image_size: tuple[int, int]) ->
     return "\n".join(lines)
 
 
-def parse_labels(raw: Any, count: int) -> list[str]:
-    """Require exactly one valid label per proposal index."""
+def parse_labels(raw: Any, count: int, allowed: tuple[str, ...] | None = CASCADE_LABELS) -> list[str]:
+    """Require exactly one valid label per proposal index; allowed=None accepts any short free-text label."""
     if not isinstance(raw, list):
         raise ValueError("response must be a JSON list")
     labels: dict[int, str] = {}
@@ -68,7 +69,11 @@ def parse_labels(raw: Any, count: int) -> list[str]:
             raise ValueError(f"invalid region index {index!r}")
         if index in labels:
             raise ValueError(f"region {index} labelled twice")
-        if label not in CASCADE_LABELS:
+        if allowed is None:
+            if not isinstance(label, str) or not 0 < len(label.strip()) <= MAX_FREE_LABEL_CHARS:
+                raise ValueError(f"region {index} has invalid label {label!r}")
+            label = label.strip()
+        elif label not in allowed:
             raise ValueError(f"region {index} has invalid label {label!r}")
         labels[index] = label
     if len(labels) != count:
