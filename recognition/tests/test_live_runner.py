@@ -239,6 +239,19 @@ class LiveRunnerTests(unittest.TestCase):
         records = run([[row(A)]], transport)
         self.assertIn("invalid identified or hint", records[0]["error"])
 
+    def test_moved_phone_keeps_its_track_and_label(self):
+        # Real session scaled down: the phone jumps with IoU 0.00-0.26 between detections.
+        transport = FakeTransport(label="Apple iPhone")
+        records = run([[row((100, 50, 160, 150))], [], [row((150, 60, 210, 160))], [row((95, 40, 155, 140))]], transport)
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual([r["detections"][0]["track_id"] for r in records if r["detections"]], [0, 0, 0])
+
+    def test_far_box_of_other_class_starts_new_track(self):
+        transport = FakeTransport()
+        far = {**row((150, 60, 210, 160)), "name": "laptop", "class": 0}
+        records = run([[row((100, 50, 160, 150))], [far]], transport)
+        self.assertEqual(len(transport.calls), 2)
+
     def test_no_proposals_makes_no_call(self):
         records = run([[], []], lambda *_: self.fail("transport should not be called"))
         self.assertEqual([r["api_called"] for r in records], [False, False])

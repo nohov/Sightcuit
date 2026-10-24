@@ -36,7 +36,13 @@ TRACK_IOU = 0.3
 # replace with per-class reasoning if multi-device scenes matter.
 DUPLICATE_IOU = 0.6
 CONTAINED_FRACTION = 0.8
-MAX_MISSED = 15
+# A track survives this many frames (~1.5 s at 30 fps) without a box; turning a phone over loses it for 1-2 s.
+MAX_MISSED = 45
+# A same-class box whose centre is within this many old-box diagonals continues the track even with little
+# overlap: a hand-held phone moved between frames got 13 track IDs in 76 s, so 20 s Gemini answers always
+# landed on a dead track.
+# shortcut: can swap two same-class items held close together; add appearance matching if that matters.
+TRACK_JUMP = 1.0
 # A box must be seen this many frames before it is drawn or sent to Gemini: one-frame flickers (a fork read as a
 # phone at 10%) otherwise used most Gemini calls, and each call blocks the next for ~7-15 s.
 MIN_TRACK_FRAMES = 5
@@ -77,6 +83,17 @@ def box_iou(a: list[float], b: list[float]) -> float:
     inter = intersection(a, b)
     union = box_area(a) + box_area(b) - inter
     return inter / union if union > 0 else 0.0
+
+
+def centre_distance(a: list[float], b: list[float]) -> float:
+    return math.dist(((a[0] + a[2]) / 2, (a[1] + a[3]) / 2), ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+
+
+def continues(proposal: dict[str, Any], old: dict[str, Any]) -> bool:
+    box, old_box = proposal["box_xyxy_pixels"], old["box_xyxy_pixels"]
+    return box_iou(box, old_box) >= TRACK_IOU or (
+        proposal["raw_class_name"] == old["raw_class_name"]
+        and centre_distance(box, old_box) <= TRACK_JUMP * math.dist(old_box[:2], old_box[2:]))
 
 
 def is_duplicate(box: list[float], other: list[float]) -> bool:
@@ -149,9 +166,11 @@ class TrackCache:
         suppressed = []
         for proposal in sorted(proposals, key=lambda p: -p["confidence"]):
             box = proposal["box_xyxy_pixels"]
-            best = max(unmatched, default=None,
-                       key=lambda i: box_iou(box, self.tracks[i]["proposal"]["box_xyxy_pixels"]))
-            if best is not None and box_iou(box, self.tracks[best]["proposal"]["box_xyxy_pixels"]) >= TRACK_IOU:
+            candidates = [i for i in unmatched if continues(proposal, self.tracks[i]["proposal"])]
+            best = max(candidates, default=None, key=lambda i: (
+                box_iou(box, self.tracks[i]["proposal"]["box_xyxy_pixels"]),
+                -centre_distance(box, self.tracks[i]["proposal"]["box_xyxy_pixels"])))
+            if best is not None:
                 unmatched.discard(best)
                 track = self.tracks[best]
             elif any(is_duplicate(box, t["proposal"]["box_xyxy_pixels"]) for t in current):
