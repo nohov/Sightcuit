@@ -228,7 +228,7 @@ const MODELS = {
   phone: Phone,
   headphones: Headphones,
   speaker: Speaker,
-  watch: Watch,
+  smartwatch: Watch,
 };
 
 export default function DeviceModel({ id }) {

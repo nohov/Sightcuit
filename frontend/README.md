@@ -17,12 +17,11 @@ npm run build      # production build in frontend/dist
 
 The dashboard is built for five detector labels, spelled exactly:
 
-`laptop` · `phone` · `headphones` · `speaker` · `watch`
+`laptop` · `phone` · `headphones` · `smartwatch` · `speaker`
 
-These are not the five classes in `labels/classes.json` on `main`
-(laptop, desktop_computer_tower, monitor, printer, projector). The recognition
-side needs to switch to these labels, and the YOLO weights need retraining on
-them, before real detections will match. Any label the dashboard doesn't know
+These are the five classes in `designspec.txt`. The recognition code
+(`labels/classes.json`, prompts, configs) and the YOLO weights still use older
+class lists and need to switch before real detections will match. Any label the dashboard doesn't know
 is shown as "Unrecognized device" instead of breaking the page.
 
 Per-device data (dimensions, weight, metal content) lives in

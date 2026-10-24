@@ -30,8 +30,8 @@ export const DEVICES = {
     weight: 540,
     metals: { Steel: 150, Aluminum: 80, Copper: 34, Neodymium: 11, Nickel: 3.1, Silver: 0.1 },
   },
-  watch: {
-    label: "Watch",
+  smartwatch: {
+    label: "Smartwatch",
     dims: [41, 45, 9.7],
     weight: 30,
     metals: { Aluminum: 8.6, Steel: 3.2, Copper: 1.7, Cobalt: 1.0, Silver: 0.02, Gold: 0.01 },
