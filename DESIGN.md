@@ -135,13 +135,18 @@ claim.
   label came from `gemini` or `track_cache`, so a cached label is never shown
   as fresh inference.
 - A new box is suppressed, and recorded as suppressed, when its IoU with a box
-  already matched this frame is ≥ 0.6, or when at least 80% of it lies inside
-  that box, YOLO-World gave both the same class, and it covers at least 20% of
-  that box's area. This stops large part-of-device boxes (a laptop screen) from
-  becoming new tracks and stealing a device's label. Smaller boxes inside get
-  their own track: on real glasses frames YOLO-World called a phone lying on a
-  laptop `laptop`, at 4–10% of the laptop box's area. Trade-off: a small part
-  (a trackpad, a corner) costs a Gemini call and shows as a `none` track.
+  already matched this frame is ≥ 0.6 or at least 80% of it lies inside that
+  box. This stops part-of-device boxes (a laptop screen, a corner) from
+  becoming new tracks and stealing a device's label. Trade-off: a small device
+  fully inside a bigger one's box (a phone lying on a laptop) gets no track of
+  its own.
+- A `keyboard` or `monitor` box at least 80% inside any live laptop track,
+  including one missed for a few frames, is suppressed before track matching,
+  so a flickering laptop box never detaches the laptop's own keyboard or
+  screen.
+- A track only continues with a box of the same detector class: on glasses
+  frames a phone box overlapping the laptop's otherwise took over its track
+  and showed the laptop's cached label.
 - Live mode ignores proposals under 32 px on their short side
   (`--min-box-side`), recording them as `too_small_proposals`. On 504×896
   glasses frames such boxes were mostly false `smartwatch` hits that Gemini
