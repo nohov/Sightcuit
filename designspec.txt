@@ -1,0 +1,232 @@
+**ScavScrap technical design specification — electronics learning scanner, v0.1**
+
+The first release lets an engineering student photograph a device, identify its family, open a sourced learning card, and save the discovery. Recognition uses pretrained models; custom training follows only if evaluation shows a need.
+
+### 1. Scope and identification contract
+
+Initial classes:
+
+```text
+laptop
+desktop_computer_tower
+monitor
+printer
+projector
+```
+
+Each prediction identifies a **device family**. Manufacturer, exact model, internal components, and specifications require separate evidence.
+
+The interface supports three outcomes:
+
+| Outcome | Behavior |
+|---|---|
+| Supported device identified | Show the family and learning card |
+| Ambiguous | Offer candidates or request another photo |
+| Unsupported / unreadable | Explain that identification is unavailable |
+
+Copper estimates, pricing, automatic 3D reconstruction, and continuous AR tracking are deferred.
+
+### 2. Proposed architecture
+
+```mermaid
+flowchart LR
+    A[Mobile client] -->|Selected photo| B[Backend API]
+    B --> C[Recognition adapter]
+    C --> D[Pretrained vision model]
+    C --> E[Prediction normalization]
+    E --> F[Learning catalog]
+    F --> B
+    B -->|Result and learning card| A
+    A -->|Save discovery| B
+    B --> G[(PostgreSQL)]
+    B --> H[Object storage]
+```
+
+| Component | Proposed implementation | Responsibility |
+|---|---|---|
+| Mobile client | React Native + TypeScript | Camera capture, results, collection, notes |
+| Backend | Python + FastAPI | Recognition requests, catalog lookup, persistence |
+| Recognition adapter | Provider-independent Python interface | Normalize model responses and handle failures |
+| Database | PostgreSQL | Device families, reviewed content, scans, discoveries |
+| Object storage | Private bucket | Retained photos and evaluation assets |
+| Evaluation runner | Python scripts | Reproduce model comparisons and generate reports |
+
+**React Native is the proposed starting point because this version centers on photos and learning cards.** Reassess native camera/AR integration when continuous scanning becomes an implementation requirement.
+
+The exact recognition model remains a benchmark decision rather than a dependency assumed to meet our needs.
+
+### 3. Recognition pipeline
+
+For v0.1, the user centers one device in the frame.
+
+```text
+Capture photo
+→ Validate image
+→ Identify supported family or abstain
+→ Validate structured output
+→ Retrieve reviewed learning card
+→ Return result
+```
+
+The recognition adapter exposes:
+
+```python
+recognize(image, allowed_classes) -> RecognitionResult
+```
+
+Normalized result:
+
+```typescript
+type DeviceFamily =
+  | "laptop"
+  | "desktop_computer_tower"
+  | "monitor"
+  | "printer"
+  | "projector";
+
+type RecognitionResult = {
+  status: "identified" | "ambiguous" | "unsupported" | "unreadable";
+  family: DeviceFamily | null;
+  candidates: Array<{
+    family: DeviceFamily;
+    score: number | null;
+  }>;
+  observedText: string[];
+  modelVersion: string;
+};
+```
+
+Model scores are stored with their origin. They are not displayed as calibrated probabilities unless independently validated.
+
+For later room scanning, extend the response with instance IDs, bounding boxes, masks, and frame timestamps. A model that only describes an image is insufficient for accurate overlays.
+
+### 4. Learning content and evidence
+
+Learning cards come from a **reviewed catalog**, rather than being freely generated on every scan.
+
+```typescript
+type LearningCard = {
+  id: string;
+  family: DeviceFamily;
+  title: string;
+  purpose: string;
+  operatingPrinciple: string;
+  typicalComponents: Array<{
+    name: string;
+    function: string;
+  }>;
+  engineeringConcepts: string[];
+  observationActivities: string[];
+  sources: Array<{
+    title: string;
+    url: string;
+  }>;
+  revision: number;
+  reviewStatus: "draft" | "approved";
+};
+```
+
+Content rules:
+
+- Describe internal components as **typical**, unless verified for an exact model.
+- Separate visible observations from catalog knowledge.
+- Publish approved cards only.
+- Link technical claims to supporting documentation.
+- Keep initial activities observational; device-specific servicing instructions require a separate design.
+
+Later exact-model records can reference manufacturer documentation without changing the family-level recognition contract.
+
+### 5. Core data model
+
+| Entity | Key fields |
+|---|---|
+| `device_families` | Stable ID, name, definition, exclusions |
+| `learning_cards` | Family ID, content, revision, review status |
+| `content_sources` | Card ID, source URL, supported claim |
+| `scans` | ID, owner, status, prediction, model version, timing, optional image key |
+| `discoveries` | Owner, scan ID, confirmed family, saved card revision |
+| `notes` | Discovery ID, user text, timestamps |
+| `recognition_feedback` | Scan ID, correction, feedback type |
+
+A discovery stores the card revision shown at save time so content updates remain traceable.
+
+Evaluation datasets and training assets live separately from students’ collections.
+
+### 6. API contract
+
+| Endpoint | Behavior |
+|---|---|
+| `POST /v1/scans` | Accept photo and create recognition job |
+| `GET /v1/scans/{id}` | Return status, prediction, and card reference |
+| `GET /v1/device-families/{id}/card` | Return approved learning card |
+| `POST /v1/discoveries` | Save a completed scan |
+| `GET /v1/discoveries` | List the user’s collection |
+| `PATCH /v1/discoveries/{id}` | Update notes or confirmed family |
+| `POST /v1/scans/{id}/feedback` | Submit an identification correction |
+| `DELETE /v1/discoveries/{id}` | Remove a saved discovery |
+
+Use asynchronous scan status:
+
+```text
+queued → processing → completed
+                    ↘ failed
+```
+
+Start with one backend process and a bounded worker. Introduce a separate queue service when concurrency or job durability requires it.
+
+### 7. Client screens
+
+| Screen | Required behavior |
+|---|---|
+| Capture | Camera, gallery upload, framing guidance |
+| Processing | Progress state, cancellation, retry |
+| Identification | Family, uncertainty, correction action |
+| Learning card | Explanation, typical components, concepts, sources |
+| Collection | Saved devices grouped by family |
+| Discovery detail | Saved result, notes, card revision |
+
+Local state preserves a captured photo during recoverable network errors. Repeated submission uses an idempotency key to avoid duplicate scans.
+
+### 8. Privacy and access
+
+- Keep provider credentials on the backend.
+- Authorize every scan, photo, discovery, and note against its owner.
+- Use private storage and short-lived image access.
+- Delete temporary scan photos after processing unless the user chooses retention.
+- Treat saving to a collection and contributing an image to a dataset as separate choices.
+- Keep images and personal notes out of routine application logs.
+
+### 9. Evaluation and release gates
+
+Create an independent test set containing supported devices, confusing objects, and unsupported electronics. Group related photos by physical device and location to prevent leakage.
+
+Measure:
+
+| Area | Metrics |
+|---|---|
+| Identification | Precision, recall, confusion matrix by family |
+| Abstention | Wrong confident answers versus appropriate uncertainty |
+| Robustness | Results by lighting, viewpoint, occlusion, and device variant |
+| Performance | End-to-end median and p95 latency; failure rate |
+| Content | Factual errors, unsupported specificity, source coverage |
+| Usability | Successful capture, correction, learning-card access, and saving |
+
+Proposed initial acceptance target: **at least 90% precision among accepted predictions for each supported family**, while separately reporting recall and the abstention rate. This is a target to validate, not current performance.
+
+Do not hide poor coverage by reporting accuracy only on easy accepted examples.
+
+### 10. Agent ownership and deliverables
+
+| Agent | Owned deliverables |
+|---|---|
+| Head | Task dependencies, decisions, integration status |
+| Recognition | Model adapter, benchmark scripts, prediction artifacts |
+| Learning content | Five reviewed cards and supporting sources |
+| App/backend | Capture flow, API, persistence, collection |
+| Independent evaluation | Test manifests, audit findings, release report |
+
+Agents use the same class map and API schemas. Contract changes require updating the consumers before integration.
+
+**First implementation milestone:** one complete path from uploaded photo → identified device family → approved learning card → saved discovery, with reproducible evaluation and explicit uncertainty.
+
+Model/provider selection, hosting costs, and device performance remain unverified; they are decisions for the baseline experiment.
