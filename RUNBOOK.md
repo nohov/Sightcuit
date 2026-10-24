@@ -97,6 +97,10 @@ JSONL line is one detected frame (skipped frames are not logged); `label_source`
 is `gemini` on the labelling frame and `track_cache` afterwards. Cached labels
 are not fresh per-frame inference.
 
+Meta glasses: add `--listen 0.0.0.0:8765` instead of `--camera` and frames come
+from the iOS relay app over local Wi-Fi (POST `/frame`, bearer token printed at
+startup). Setup is in `app/ios/README.md`.
+
 Whole-image Gemini runs send every image to Google. Set the key in the shell
 only, then smoke-test three images before the full manifest:
 

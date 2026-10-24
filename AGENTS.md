@@ -19,6 +19,10 @@ configuration. The owner-approved exceptions for the bake-off are:
   `permission_provenance_notes` permit upload to Google.
 - One owner-run install of Ultralytics and download of the frozen
   YOLO-World weights named in `recognition/yolo_world_model.json`.
+- A Developer-Mode-only iOS relay prototype in `app/ios/` that adds the Meta
+  Wearables Device Access Toolkit Swift package. It sends glasses frames only
+  to the owner's laptop via `recognition/live_runner.py --listen`; Gemini calls
+  stay on the laptop.
 
 Otherwise use only already-installed runtimes, existing local weights, and
 permitted local images. If any are missing, stop at a runnable specification
