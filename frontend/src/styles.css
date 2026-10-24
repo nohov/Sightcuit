@@ -211,28 +211,99 @@ button { font: inherit; }
 }
 .relay-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Detection box drawn as a brass caliper: L-shaped jaws with rivets at the
+   corners, ruler ticks along each edge, and a riveted name plate. */
 .det-box {
+  --tool: var(--accent);
+  --tool-dark: var(--brass);
   position: absolute;
-  border: 2px solid var(--accent);
-  border-radius: 3px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
   transition: left 0.25s linear, top 0.25s linear, width 0.25s linear, height 0.25s linear;
 }
-.det-box.pending { border-style: dashed; border-color: var(--text-soft); }
+.det-box.pending { --tool: var(--text-soft); --tool-dark: #8a7a5e; }
 
+.jaw {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 0 solid var(--tool);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7));
+}
+.jaw.tl { top: -3px; left: -3px; border-top-width: 4px; border-left-width: 4px; border-top-left-radius: 3px; }
+.jaw.tr { top: -3px; right: -3px; border-top-width: 4px; border-right-width: 4px; border-top-right-radius: 3px; }
+.jaw.bl { bottom: -3px; left: -3px; border-bottom-width: 4px; border-left-width: 4px; border-bottom-left-radius: 3px; }
+.jaw.br { bottom: -3px; right: -3px; border-bottom-width: 4px; border-right-width: 4px; border-bottom-right-radius: 3px; }
+
+/* A hand tool across each corner, working end pointing outward */
+.tool {
+  position: absolute;
+  width: 42px;
+  height: 42px;
+  color: var(--tool);
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.7));
+}
+.tool svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.tool.tl { top: -27px; left: -27px; transform: rotate(-45deg); }
+.tool.tr { top: -27px; right: -27px; transform: rotate(45deg); }
+.tool.bl { bottom: -27px; left: -27px; transform: rotate(-135deg); }
+.tool.br { bottom: -27px; right: -27px; transform: rotate(135deg); }
+.det-box.pending .tool { opacity: 0.8; }
+
+/* Ruler ticks between the jaws: a long tick every 5th */
+.ruler { position: absolute; opacity: 0.85; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.6)); }
+.ruler.top, .ruler.bottom {
+  left: 22px;
+  right: 22px;
+  height: 7px;
+  background:
+    repeating-linear-gradient(90deg, var(--tool) 0 1.5px, transparent 1.5px 40px) 0 0 / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, var(--tool) 0 1px, transparent 1px 8px) 0 0 / 100% 4px no-repeat,
+    linear-gradient(var(--tool), var(--tool)) 0 0 / 100% 1.5px no-repeat;
+}
+.ruler.top { top: -2px; }
+.ruler.bottom { bottom: -2px; transform: scaleY(-1); }
+.ruler.left, .ruler.right {
+  top: 22px;
+  bottom: 22px;
+  width: 7px;
+  background:
+    repeating-linear-gradient(180deg, var(--tool) 0 1.5px, transparent 1.5px 40px) 0 0 / 7px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--tool) 0 1px, transparent 1px 8px) 0 0 / 4px 100% no-repeat,
+    linear-gradient(var(--tool), var(--tool)) 0 0 / 1.5px 100% no-repeat;
+}
+.ruler.left { left: -2px; }
+.ruler.right { right: -2px; transform: scaleX(-1); }
+.det-box.pending .ruler { opacity: 0.6; }
+
+/* Riveted brass name plate */
 .det-label {
   position: absolute;
-  left: -2px;
+  left: -3px;
   bottom: 100%;
-  margin-bottom: 4px;
+  margin-bottom: 22px;
+  margin-left: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   white-space: nowrap;
   font-size: 12px;
   color: var(--panel-dark);
-  background: var(--accent);
-  padding: 2px 6px;
-  border-radius: 2px;
+  background: linear-gradient(180deg, #ecd28c, var(--tool) 45%, var(--tool-dark));
+  border: 1px solid #5a4126;
+  padding: 3px 7px;
+  border-radius: 3px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
-.det-box.pending .det-label { background: var(--text-soft); }
+.det-box.pending .det-label { background: linear-gradient(180deg, #e6dccb, var(--tool) 45%, var(--tool-dark)); }
+.screw {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff4d6, #6b5330 75%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+.tag-cog { color: var(--panel-dark); flex: none; }
+.tag-cog.fast { animation-duration: 3s; }
 
 .transport {
   position: absolute;
