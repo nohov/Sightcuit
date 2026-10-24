@@ -22,22 +22,25 @@ RAW = ROOT / "datasets" / "_raw"
 OUT = ROOT / "datasets" / "scavscrap"
 
 CLASSES = ["laptop", "desktop_computer_tower", "monitor", "printer", "projector",
-           "keyboard", "mouse", "phone", "tablet", "tv", "router"]
+           "keyboard", "mouse", "phone", "tablet", "tv", "router",
+           "headphones", "speaker", "watch"]  # appended so IDs 0-10 match v2; earbuds count as headphones
 CID = {name: i for i, name in enumerate(CLASSES)}
 
 OPENIMAGES = {"Laptop": "laptop", "Computer monitor": "monitor", "Printer": "printer",
               "Computer keyboard": "keyboard", "Computer mouse": "mouse", "Mobile phone": "phone",
-              "Tablet computer": "tablet", "Television": "tv"}
+              "Tablet computer": "tablet", "Television": "tv", "Headphones": "headphones", "Watch": "watch"}
 LVIS = {"laptop_computer": "laptop", "monitor_(computer_equipment) computer_monitor": "monitor",
         "printer": "printer", "projector": "projector", "computer_keyboard": "keyboard",
         "mouse_(computer_equipment)": "mouse", "cellular_telephone": "phone",
-        "television_set": "tv", "router_(computer_equipment)": "router"}
-LVIS_REQUIRED = {"monitor", "printer", "projector", "router"}  # images LVIS adds beyond Open Images
+        "television_set": "tv", "router_(computer_equipment)": "router", "earphone": "headphones",
+        "headset": "headphones", "speaker_(stero_equipment)": "speaker", "watch": "watch"}
+LVIS_REQUIRED = {"monitor", "printer", "projector", "router", "headphones", "speaker", "watch"}  # images LVIS adds beyond Open Images
 O365 = {"Laptop": "laptop", "Computer Box": "desktop_computer_tower", "Projector": "projector",
         "Printer": "printer", "Keyboard": "keyboard", "Mouse": "mouse", "Cell Phone": "phone",
-        "Tablet": "tablet", "Router/modem": "router"}
+        "Tablet": "tablet", "Router/modem": "router", "Head Phone": "headphones", "earphone": "headphones",
+        "Speaker": "speaker", "Watch": "watch"}
 O365_MASK = "Moniter/TV"  # sic, upstream spelling; merged class: painted out so it is never an unlabeled monitor or tv
-O365_REQUIRED = {"desktop_computer_tower", "projector", "printer", "router"}
+O365_REQUIRED = {"desktop_computer_tower", "projector", "printer", "router", "headphones", "speaker", "watch"}
 O365_URL = "https://dorc.ks3-cn-beijing.ksyun.com/data-set/2020Objects365%E6%95%B0%E6%8D%AE%E9%9B%86/val/"
 
 
@@ -320,7 +323,9 @@ def selftest():
     assert meta == {"names": ["DESKTOP PC", "Monitors"], "project": "desk-pc"}
     assert is_val("oi_abc") == is_val("oi_abc")
     assert 10 < sum(is_val(f"x{i}") for i in range(1000)) / 10 < 20
-    assert set(OPENIMAGES.values()) | set(LVIS.values()) | set(O365.values()) <= set(CLASSES)
+    assert set(OPENIMAGES.values()) | set(LVIS.values()) | set(O365.values()) == set(CLASSES)  # every class has a source
+    assert CLASSES[:11] == ["laptop", "desktop_computer_tower", "monitor", "printer", "projector",
+                            "keyboard", "mouse", "phone", "tablet", "tv", "router"]  # v2 IDs unchanged
     print("selftest ok")
 
 
