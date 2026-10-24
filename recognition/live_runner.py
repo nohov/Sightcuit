@@ -367,15 +367,19 @@ class LatestFrame:
 
 
 def draw_tracks(frame: Any, tracks: list[dict[str, Any]]) -> None:
+    """Detector class in yellow at once, Gemini's name in green when it lands; Gemini "none" hides the box."""
     for track in tracks:
-        # Only Gemini-confirmed tech items are drawn: the detector calls toothpaste or a fork "phone" at up to 84%.
-        if track["label"] in (None, "none"):
+        # The detector calls toothpaste or a fork "phone" at up to 84%, so "none" and one-frame flickers stay hidden.
+        if track["label"] == "none" or track["seen"] < MIN_TRACK_FRAMES:
             continue
+        if track["label"] is None:
+            text, color = f"#{track['track_id']} {track['proposal']['raw_class_name']}...", (0, 220, 255)
+        else:
+            hint = f" - {track['hint']}" if track["hint"] else ""
+            text, color = f"#{track['track_id']} {track['label']}{hint}", (0, 200, 0)
         x1, y1, x2, y2 = (int(v) for v in track["proposal"]["box_xyxy_pixels"])
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 0), 2)
-        hint = f" - {track['hint']}" if track["hint"] else ""
-        cv2.putText(frame, f"#{track['track_id']} {track['label']}{hint}", (x1, max(y1 - 6, 12)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(frame, text, (x1, max(y1 - 6, 12)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 def run_with_display(camera: int, detect: Callable[[Iterable[Any], Callable[..., bool]], None]) -> None:

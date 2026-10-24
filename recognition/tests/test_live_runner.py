@@ -205,13 +205,24 @@ class LiveRunnerTests(unittest.TestCase):
     def test_hidden_boxes_are_not_drawn(self):
         frame = np.zeros((200, 300, 3), dtype=np.uint8)
         proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0]}
+        stable = runner.MIN_TRACK_FRAMES
         runner.draw_tracks(frame, [
-            {"track_id": 0, "label": "none", "hint": None, "proposal": proposal},
-            {"track_id": 1, "label": None, "hint": None, "proposal": proposal},
+            {"track_id": 0, "label": "none", "hint": None, "seen": stable, "proposal": proposal},
+            {"track_id": 1, "label": None, "hint": None, "seen": 1, "proposal": proposal},
         ])
         self.assertEqual(frame.sum(), 0)
-        runner.draw_tracks(frame, [{"track_id": 2, "label": "smartphone", "hint": "move closer", "proposal": proposal}])
-        self.assertGreater(frame.sum(), 0)
+
+    def test_detector_box_shows_before_gemini_answers(self):
+        frame = np.zeros((200, 300, 3), dtype=np.uint8)
+        proposal = {"box_xyxy_pixels": [30.0, 20.0, 150.0, 100.0], "raw_class_name": "phone"}
+        runner.draw_tracks(frame, [{"track_id": 1, "label": None, "hint": None,
+                                    "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal}])
+        self.assertGreater(frame[:, :, 2].sum(), 0)  # yellow has red; Gemini's green does not
+        labelled = np.zeros_like(frame)
+        runner.draw_tracks(labelled, [{"track_id": 1, "label": "Apple iPhone", "hint": None,
+                                       "seen": runner.MIN_TRACK_FRAMES, "proposal": proposal}])
+        self.assertEqual(labelled[:, :, 2].sum(), 0)
+        self.assertGreater(labelled[:, :, 1].sum(), 0)
 
     def test_each_region_gets_a_full_resolution_close_up(self):
         transport = FakeTransport()

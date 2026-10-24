@@ -88,7 +88,8 @@ product family when a logo or family-unique design is visible ("Apple iPhone"),
 never an exact model, else a generic type ("smartphone") plus a hint for the user
 ("move closer", "improve lighting", "hold still", "show the logo side"). Gemini
 sees the full frame and a full-resolution close-up of each box. Generic labels are
-re-asked every 10 s while in view. Only Gemini-confirmed tech items are drawn. Press `q` to quit:
+re-asked every 10 s while in view. Boxes show at once in yellow with the
+detector class, turn green with Gemini's name, and disappear if Gemini says "none". Press `q` to quit:
 
 ```sh
 set -a; . ./.env; set +a
