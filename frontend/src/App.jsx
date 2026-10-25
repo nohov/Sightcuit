@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
-import { BreadboardPanel, StepsPanel } from "./components/LessonPreview.jsx";
+import { BreadboardPanel, LESSON_STEPS, StepsPanel } from "./components/LessonPreview.jsx";
+import Inventory, { LED_PROJECT } from "./components/Inventory.jsx";
+import { useInventory, useProjects } from "./inventory.js";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
@@ -62,7 +64,7 @@ function RelayForm({ relay, onConnect, onClose }) {
   );
 }
 
-function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
+function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, status, onRelayChange, videoRef }) {
   const tracks = frame?.tracks || [];
   const [frameH, frameW] = sizeHW;
   const screenRef = useRef(null);
@@ -142,7 +144,7 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
 
           <div className="stage" style={stageStyle}>
             {showVideo && (
-              <img className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+              <img ref={videoRef} crossOrigin="anonymous" className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
 
             {/* Detection boxes, scaled from frame pixels to the drawn frame */}
@@ -261,6 +263,18 @@ export default function App() {
     setSizeHW((prev) => (prev[0] === frameSize[0] && prev[1] === frameSize[1] ? prev : frameSize));
   }, [frameSize?.[0], frameSize?.[1]]);
 
+  // Parts the glasses spot live go into the inventory, with a snapshot from the video.
+  const videoRef = useRef(null);
+  const inventory = useInventory();
+  const { recordFrame } = inventory;
+  const detectionLive = status === "live" && !paused;
+  useEffect(() => {
+    recordFrame(frame, sizeHW, videoRef.current, detectionLive);
+  }, [frame, sizeHW, detectionLive, recordFrame]);
+
+  // The LED project marks itself complete when the lesson reaches its last step.
+  const projects = useProjects(LED_PROJECT.id, stepIndex, LESSON_STEPS.length);
+
   const recording = (
     <RecordingPanel
       frame={frame}
@@ -271,6 +285,7 @@ export default function App() {
       relay={relay}
       status={paused ? "paused" : status}
       onRelayChange={changeRelay}
+      videoRef={videoRef}
     />
   );
   return (
@@ -285,6 +300,7 @@ export default function App() {
           <BreadboardPanel stepIndex={stepIndex} />
         </div>
       </div>
+      <Inventory inventory={inventory} completed={projects.completed} onReset={projects.reset} stepIndex={stepIndex} />
     </div>
   );
 }

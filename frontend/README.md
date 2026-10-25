@@ -91,6 +91,22 @@ Without a relay, the hero remains in a stable preview state. It does not cycle
 through mock device labels. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN` set a
 default relay at build time.
 
+## Inventory
+
+The brass **Inventory** tab on the bottom edge opens a drawer with two tabs:
+
+- **My Parts**: the LED kit. A part is marked spotted only when a fresh live
+  relay event carries its `component_preview.model_id`; the first sighting
+  saves a snapshot cropped from the glasses video. The USB cable has no
+  detector class and is never marked.
+- **My Projects**: each project with its steps and parts. A project marks
+  itself complete the first time the lesson reaches its last step: a
+  **Completed** badge appears next to its name, with the time. It stays
+  complete if the user steps back; **Reset completion** clears it. It records
+  lesson progress only and does not verify wiring.
+
+Kept in this browser (`localStorage`).
+
 ## Structure
 
 ```text
@@ -98,6 +114,9 @@ src/
   App.jsx                    dashboard layout and recording panel
   components/LessonPreview.jsx  five-step preview and breadboard concept
   components/lesson-preview.css  lesson panel styles
+  components/Inventory.jsx   inventory drawer (My Parts, My Projects)
+  components/inventory.css   inventory drawer styles
+  inventory.js               part sightings, snapshots, project completion
   devices.js                 per-label device data (placeholders)
   feed.js                    relay connection (video + detections) and mock feed
   styles.css                 theme tokens and styles
