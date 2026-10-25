@@ -314,10 +314,11 @@ stops; "new session" or "start over" resets it. Each "what is this?" answer
 names the part (`component`), and spoken resistor bands add their value.
 "What can I make?" sends that parts list with the frame for build ideas. "I
 want to make X" (or picking a suggested idea) asks for a plan
-(`prompt-plan-v3.txt`: parts with values, missing parts, steps; 9 V or less,
+(`prompt-plan-v4.txt`: parts with values, missing parts, steps; 9 V or less,
 no mains, battery type and terminals named, a resistor unless a lone coin
 cell; with a microcontroller, exact pins and the Arduino sketch, saved on
-"yes" under `sketches/` next to the log, never run). The tutor lists the parts still missing and switches to the generated
+"yes" under `sketches/` next to the log, never run; the dashboard shows it
+with Arduino IDE paste-and-upload steps). The tutor lists the parts still missing and switches to the generated
 steps only on "yes"; "no" keeps the current build and step.
 Generated steps are unverified model output, not checked circuits.
 Without `--project` the tutor starts with no build chosen; the LED project
