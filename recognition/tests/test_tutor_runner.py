@@ -318,6 +318,22 @@ class TutorServerTests(unittest.TestCase):
         self.assertEqual(self.get("/session?token=secret")[1]["revision"], 1)
         self.assertEqual(self.records[-1]["step_after"], 1)
 
+    def test_dashboard_gets_video_and_events_from_the_tutor(self):
+        port = self.server.server_address[1]
+        self.assertEqual(self.get("/stream.mjpg?token=wrong")[0], 401)
+        jpeg = cv2.imencode(".jpg", np.zeros((20, 30, 3), dtype=np.uint8))[1].tobytes()
+        self.assertEqual(self.post("/frame", jpeg)[0], 200)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/stream.mjpg?token=secret", timeout=5) as response:
+            self.assertEqual(response.headers["Access-Control-Allow-Origin"], "*")
+            self.assertTrue(response.headers["Content-Type"].startswith("multipart/x-mixed-replace"))
+            head = response.read(len(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ") + len(str(len(jpeg))) + 4)
+            self.assertTrue(head.endswith(str(len(jpeg)).encode() + b"\r\n\r\n"))
+            self.assertEqual(response.read(len(jpeg)), jpeg)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/events?token=secret", timeout=5) as response:
+            line = response.readline()
+        record = json.loads(line.decode().removeprefix("data: "))
+        self.assertEqual((record["frame_index"], record["image_size_hw_pixels"], record["tracks"]), (1, [20, 30], []))
+
     def test_wrong_token_is_rejected(self):
         self.assertEqual(self.post("/ask", b'{"text":"hi"}', token="wrong")[0], 401)
         self.assertEqual(self.records, [])

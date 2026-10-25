@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 
 from recognition.gemini_runner import RETRY_STATUSES, Transport, build_payload, gemini_transport, response_text
-from recognition.live_runner import MAX_RELAY_FRAME_BYTES, camera_frames
+from recognition.live_runner import EVENTS_KEEPALIVE_SECONDS, MAX_RELAY_FRAME_BYTES, STREAM_POLL_SECONDS, camera_frames
 from recognition.narrator import DEFAULT_TTS_MODEL, DEFAULT_VOICE, _write, elevenlabs_speak
 from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
@@ -41,6 +41,7 @@ IDEAS_PROMPT = (HERE / f"prompt-{IDEAS_VERSION}.txt").read_text(encoding="utf-8"
 PLAN_PROMPT = (HERE / f"prompt-{PLAN_VERSION}.txt").read_text(encoding="utf-8")
 OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_ASK_BYTES = 4096
+EVENT_HZ = 4  # dashboard /events records per second while frames arrive
 # With no --project the tutor starts free: identify parts, ask for ideas, or request a build.
 NO_PROJECT = {"id": None, "title": None, "steps": [], "bom": []}
 NO_BUILD = "No build chosen yet. Show me a part and ask what is this, or tell me what you want to make."
@@ -451,6 +452,10 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
     GET /session?token= returns Tutor.session() plus a revision for the dashboard (?token= because the
     browser polls it like the relay's endpoints). It is read-only and costs no model call.
 
+    So the dashboard keeps its video while the tutor stands in for live_runner, the tutor also serves the
+    relay's two dashboard endpoints: /stream.mjpg (the newest glasses frame, unchanged) and /events (one
+    record per new frame, at most EVENT_HZ a second, with no tracks because the tutor runs no detector).
+
     With speak, the reply carries the spoken WAV; without it, or if speaking fails, the phone uses its own voice.
 
     shortcut: plain HTTP on the LAN behind a bearer token, like the detection relay; add TLS before shared networks.
@@ -471,13 +476,58 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
 
         def do_GET(self) -> None:
             url = urlsplit(self.path)
-            if url.path != "/session":
+            if url.path not in ("/session", "/stream.mjpg", "/events"):
                 return self.reply(404, {"error": "not found"})
             supplied = (parse_qs(url.query).get("token") or [""])[0]
             if not hmac.compare_digest(f"Bearer {supplied}".encode(), expected):
                 return self.reply(401, {"error": "bad token"})
-            with lock:
-                return self.reply(200, {"revision": state.get("revision", 0), **tutor.session()})
+            if url.path == "/session":
+                with lock:
+                    return self.reply(200, {"revision": state.get("revision", 0), **tutor.session()})
+            try:
+                self.stream_frames() if url.path == "/stream.mjpg" else self.stream_events()
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the browser closed the tab or reconnected
+
+        def start_stream(self, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Cache-Control", "no-cache, no-store")
+            self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+        def stream_frames(self) -> None:
+            self.start_stream("multipart/x-mixed-replace; boundary=frame")
+            last = None
+            while True:
+                jpeg = state.get("jpeg")
+                if jpeg is None or jpeg is last:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                last = jpeg
+                self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                 + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+                self.wfile.flush()
+
+        def stream_events(self) -> None:
+            self.start_stream("text/event-stream")
+            last_seq, last_write = None, time.monotonic()
+            while True:
+                seq = state.get("frame_seq", 0)
+                now = time.monotonic()
+                if seq and seq != last_seq and now - last_write >= 1 / EVENT_HZ:
+                    last_seq = seq
+                    record = {"frame_index": seq, "timestamp": time.time(),
+                              "image_size_hw_pixels": state.get("image_size"), "tracks": []}
+                    self.wfile.write(f"data: {json.dumps(record, separators=(',', ':'))}\n\n".encode())
+                elif now - last_write >= EVENTS_KEEPALIVE_SECONDS:
+                    self.wfile.write(b": keepalive\n\n")
+                else:
+                    time.sleep(STREAM_POLL_SECONDS)
+                    continue
+                self.wfile.flush()
+                last_write = time.monotonic()
 
         def do_POST(self) -> None:
             if self.path not in ("/frame", "/ask"):
@@ -494,6 +544,7 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                 if frame is None:
                     return self.reply(400, {"error": "body is not a decodable image"})
                 state["jpeg"], state["image_size"] = body, list(frame.shape[:2])
+                state["frame_seq"] = state.get("frame_seq", 0) + 1
                 # Same shape as the detection relay's reply, so the existing iOS client decodes it unchanged.
                 return self.reply(200, {"tracks": [], "image_size_hw_pixels": state["image_size"]})
             try:
@@ -582,6 +633,7 @@ def main() -> None:
                 encoded, jpeg = cv2.imencode(".jpg", frame)
                 if encoded:
                     state["jpeg"], state["image_size"] = jpeg.tobytes(), list(frame.shape[:2])
+                    state["frame_seq"] = state.get("frame_seq", 0) + 1
         threading.Thread(target=read_camera, name="tutor-camera", daemon=True).start()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

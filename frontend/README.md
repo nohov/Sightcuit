@@ -111,6 +111,10 @@ The brass **Inventory** tab on the bottom edge opens a drawer with two tabs:
   where `live_runner` does). While `live_runner` runs instead, the tab says
   the tutor isn't reachable.
 
+  The tutor also serves `/stream.mjpg` and `/events`, so the glasses video
+  stays live on the dashboard while the tutor runs. Its events carry no
+  detection boxes (the tutor runs no detector).
+
 Kept in this browser (`localStorage`).
 
 ## Structure
