@@ -82,6 +82,10 @@
 .inv-head h2 { margin: 0; font-family: var(--display); font-size: 24px; letter-spacing: 0.14em; color: var(--accent); }
 .inv-head .mono { font-size: 13px; }
 .inv-close { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.inv-clear { margin-left: auto; }
+.inv-clear + .inv-close { margin-left: 0; }
+.inv-clear.armed, .inv-clear.armed:hover { border-color: var(--rec); color: #f0b3a5; background: rgba(224, 86, 58, 0.12); }
+.inv-clear:disabled { opacity: 0.4; cursor: default; }
 
 .inv-tabs { display: flex; gap: 6px; }
 .inv-tabs button {

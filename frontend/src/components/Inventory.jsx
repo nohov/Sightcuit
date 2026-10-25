@@ -126,6 +126,30 @@ function ProjectCard({ project, onReset }) {
   );
 }
 
+// Two clicks to clear, so a stray click during a demo can't wipe the inventory.
+function ClearButton({ empty, onClear }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return undefined;
+    const id = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(id);
+  }, [armed]);
+  return (
+    <button
+      type="button"
+      className={`text-btn inv-clear ${armed ? "armed" : ""}`}
+      disabled={empty}
+      onClick={() => {
+        if (!armed) return setArmed(true);
+        setArmed(false);
+        onClear();
+      }}
+    >
+      {armed ? "Click again to clear" : "Clear inventory"}
+    </button>
+  );
+}
+
 export default function Inventory({ inventory }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("parts");
@@ -190,6 +214,7 @@ export default function Inventory({ inventory }) {
               </button>
             ))}
           </div>
+          <ClearButton empty={partCount === 0 && projects.length === 0} onClear={inventory.clearAll} />
           <button ref={closeRef} type="button" className="text-btn primary inv-close" onClick={close}>
             <Chevron />
             Back to lesson

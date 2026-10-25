@@ -107,7 +107,10 @@ fixed kit):
   stays complete if the user steps back; **Reset completion** clears it. It
   records lesson progress only and does not verify wiring.
 
-Kept in this browser (`localStorage`).
+Kept in this browser (`localStorage`). **Clear inventory** in the drawer
+header empties both tabs (click it twice; the second click must come within
+4 seconds), e.g. before a demo. Restart the tutor too, or its current build
+reappears with the next message.
 
 ## Structure
 

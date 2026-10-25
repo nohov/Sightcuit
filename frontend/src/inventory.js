@@ -9,7 +9,7 @@
 // reports it finished and stays complete (with the time) even if the user steps back. It records lesson
 // progress, not a wiring check.
 //
-// Everything survives reloads (localStorage) until removed.
+// Everything survives reloads (localStorage) until removed or cleared with "Clear inventory".
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -116,5 +116,13 @@ export function useInventory() {
     setData((prev) => ({ ...prev, projects: { ...prev.projects, [title]: { ...prev.projects[title], completedAt: null } } }));
   }, []);
 
-  return { parts: data.parts, projects: data.projects, recordLesson, forgetPart, resetProject };
+  // Empties parts and projects (e.g. before a demo) and saves right away, so a quick reload stays empty.
+  // Parts already in the tutor's current list are not re-added; they come back only when they join it again.
+  const clearAll = useCallback(() => {
+    const empty = { parts: {}, projects: {} };
+    save(empty);
+    setData(empty);
+  }, []);
+
+  return { parts: data.parts, projects: data.projects, recordLesson, forgetPart, resetProject, clearAll };
 }
