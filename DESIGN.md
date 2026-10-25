@@ -207,13 +207,15 @@ for identity details such as color, value, and connector type.
 
 1. Baseline: run the existing YOLO-World proposals and Gemini labels on about
    20 permitted glasses photos of the parts and record per-class results.
-2. Capture: add frame saving to the relay (`live_runner.py --save-frames DIR`,
-   not yet built) and collect about 150 glasses photos over several sessions:
-   laid out, held in the right hand, partly occluded, partly assembled, and
-   under varied light and angles.
-3. Hold out: the evaluation owner picks whole sessions for the frozen test set
-   before training. Split by session, never by frame; adjacent frames are
-   near-duplicates.
+2. Capture training photos with a phone, held at eye level and pointed down
+   at the table as the wearer's head would be, 1× lens, no portrait mode.
+   Collect about 150 over several sessions: laid out, held in the right hand,
+   partly occluded, partly assembled, and under varied light and surfaces.
+3. Test on glasses frames only: save 20–30 relayed frames with
+   `live_runner.py --listen ... --save-frames DIR` (capture only, no detection
+   or upload). Phone photos are sharper and differently framed, so a phone-only
+   test set would overstate live performance. The evaluation owner freezes
+   these before training.
 4. Label: one box per physical piece, using the catalog classifications
    `development_board`, `breadboard`, `led`, `resistor`, `wire`, `cable`.
    Each jumper wire gets its own box.
