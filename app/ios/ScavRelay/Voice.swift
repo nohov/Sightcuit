@@ -1,7 +1,40 @@
 import AVFoundation
 import Speech
 
-/// On-device speech in and out for the circuit tutor; only the recognized question text goes to the laptop.
+/// Mic samples of one utterance as 16-bit mono WAV; appended on the audio thread, read on the main actor.
+final class Recording: @unchecked Sendable {
+  static let maxSeconds = 30.0  // keeps the upload under the laptop's 4 MB limit at 48 kHz
+  private let lock = NSLock()
+  private var samples: [Int16] = []
+  private var rate = 0.0
+
+  func append(_ buffer: AVAudioPCMBuffer) {
+    guard let channel = buffer.floatChannelData?[0] else { return }
+    lock.withLock {
+      rate = buffer.format.sampleRate
+      guard Double(samples.count) < rate * Self.maxSeconds else { return }
+      samples += UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))
+        .map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
+    }
+  }
+
+  func wav() -> Data {
+    lock.withLock {
+      var data = Data()
+      func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+      let bytes = UInt32(samples.count * 2)
+      data.append(contentsOf: Array("RIFF".utf8)); put(36 + bytes)
+      data.append(contentsOf: Array("WAVEfmt ".utf8)); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
+      put(UInt32(rate)); put(UInt32(rate) * 2); put(UInt16(2)); put(UInt16(16))
+      data.append(contentsOf: Array("data".utf8)); put(bytes)
+      samples.withUnsafeBytes { data.append(contentsOf: $0) }  // iPhones are little-endian, as WAV is
+      return data
+    }
+  }
+}
+
+/// Speech in and out for the circuit tutor. The wake word is heard on the phone; only an utterance containing it
+/// goes to the laptop, as audio for ElevenLabs speech-to-text and as the on-device transcript for when that fails.
 @MainActor
 final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
   @Published var listening = false
@@ -17,6 +50,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAu
   private var player: AVAudioPlayer?
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var task: SFSpeechRecognitionTask?
+  private var recording: Recording?
   private var silence: Task<Void, Never>?
   private var relay: RelayClient?
 
@@ -77,8 +111,11 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAu
     let input = engine.inputNode
     input.removeTap(onBus: 0)
     nonisolated(unsafe) let buffered = request  // append is safe from the audio thread
+    let recording = Recording()
+    self.recording = recording
     input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
       buffered.append(buffer)
+      recording.append(buffer)
     }
     let id = ObjectIdentifier(request)
     task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
@@ -113,11 +150,13 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAu
     endUtterance()
     let text = heard
     heard = ""
+    let wav = recording?.wav()
+    recording = nil
     guard listening else { return }
     guard let question = Self.question(in: text), let relay else { return listen() }
     // The laptop only answers after the model does, so this confirms the send; the reply confirms the model.
     speak("Sent.")
-    relay.ask(question) { [weak self] outcome in self?.answered(outcome) }
+    relay.ask(question, audio: wav) { [weak self] outcome in self?.answered(outcome) }
   }
 
   private func answered(_ outcome: Result<TutorReply, Error>) {
