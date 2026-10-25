@@ -1,8 +1,12 @@
-# ScavScrap scan dashboard (frontend)
+# ScavScrap lesson dashboard (frontend)
 
-Steampunk dashboard for a device scan: the Meta glasses recording with
-detection boxes, a rotating model of the detected device, its measurements,
-a description panel and a metal assay chart.
+Steampunk dashboard with a vertical Meta glasses recording, a five-step LED
+lesson preview, and a conceptual breadboard drawing. The small square model
+tab is a placeholder.
+
+The desktop layout has a compact rule for a 15-inch MacBook Pro sized browser
+window (about 1440 CSS pixels wide with 800 pixels of usable height). Shorter
+browser windows scroll instead of squeezing the lesson panels over each other.
 
 ## Run it
 
@@ -58,26 +62,33 @@ The relay serves two read-only endpoints, both needing `?token=`:
   non-target), `name` (Gemini's product name), `description` (Gemini's
   short description once written, else null), `hint` and `label_source`
 
-Every labelled device in view gets its own model, measurements, description
-and top-3 metal breakdown, up to three devices (most confident first; the
-panels note how many more are in view). The confidence shown is the box
-proposal's, not Gemini's (Gemini returns none).
+The hero shows the vertical recording feed, Steps panel, and Breadboard Setup.
+The five lesson steps are based on `DESIGN.md` and use a 330 Ω resistor. Back
+and Next only change the visible step; they do not verify wiring or control the
+glasses. The Parts list shows which components belong to earlier, current, and
+later steps in the plan; it does not confirm physical placement. The breadboard
+drawing shows orientation and the series circuit path,
+without assigning holes or showing a powered circuit. Exact hole placements,
+connection review, and power-up procedure still need a prepared plan for the
+confirmed breadboard. Keep USB disconnected during assembly. The separate
+`public/electronics/` demo depicts a 220 Ω example and is not this lesson's
+wiring guide.
 
-Without a relay, a mock feed cycles through all five devices, 10 seconds
-each, with a second device in view every other cycle, so every screen can be
-tested. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN`
-set a default relay at build time.
+Live detection boxes still appear on the recording feed. Their confidence is
+the detector proposal's, not Gemini's (Gemini returns none).
+
+Without a relay, the hero remains in a stable preview state. It does not cycle
+through mock device labels. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN` set a
+default relay at build time.
 
 ## Structure
 
 ```text
 src/
-  App.jsx                    layout and panels
+  App.jsx                    dashboard layout and recording panel
+  components/LessonPreview.jsx  five-step preview and breadboard concept
+  components/lesson-preview.css  lesson panel styles
   devices.js                 per-label device data (placeholders)
   feed.js                    relay connection (video + detections) and mock feed
-  components/DeviceModels.jsx  rotating CSS 3D models, one per device
   styles.css                 theme tokens and styles
 ```
-
-The 3D models use CSS 3D transforms, so there are no model files or WebGL
-dependency. They can later be swapped for three.js with real `.glb` models.

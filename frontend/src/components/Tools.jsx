@@ -2,7 +2,7 @@
 // upright in a 24×24 box with its working end at the top; CSS rotates it so
 // that end points out of the corner. Fill is currentColor, outline is dark.
 
-import { useId } from "react";
+import React, { useId } from "react";
 
 const OUTLINE = { stroke: "#2a1d13", strokeWidth: 1, strokeLinejoin: "round" };
 

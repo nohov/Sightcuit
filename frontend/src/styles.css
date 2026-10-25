@@ -10,8 +10,8 @@
   --text-soft: #cdbb98;
   --muted: #b9a47e;
   --rec: #e0563a;
-  --display: "Cinzel", Georgia, serif;
-  --body: "EB Garamond", Georgia, serif;
+  --display: "Alegreya SC", Georgia, serif;
+  --body: "Alegreya", Georgia, serif;
   --mono: "Special Elite", "Courier New", monospace;
 }
 
@@ -44,31 +44,6 @@ button { font: inherit; }
 
 .row { display: flex; gap: 18px; align-items: stretch; min-height: 0; }
 
-/* Portrait video: recording on the left at full height, other panels in a column beside it */
-.app.portrait { flex-direction: row; height: 100vh; }
-.app.portrait .recording { min-height: 0; }
-.side-column { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
-.app.portrait .row.top { min-height: 0; flex: 1.4; }
-.app.portrait .row.bottom { min-height: 0; flex: 1; }
-.row.top { flex: 2.4; min-height: 480px; }
-.row.bottom { flex: 1; min-height: 220px; }
-
-.recording { flex: 3 1 600px; }
-.model { flex: 0.7 1 240px; }
-.measurements { flex: 0.8 1 260px; }
-.particulars { flex: 1.3 1 480px; }
-.assay { flex: 1 1 420px; }
-
-@media (max-width: 1100px) {
-  .row { flex-wrap: wrap; }
-  .app.portrait { flex-direction: column; height: auto; }
-  .row.top, .row.bottom { min-height: 0; }
-  .row > .panel { flex: 1 1 300px; }
-  .row > .recording { flex-basis: 100%; }
-  .recording .slot { flex: none; }
-  .recording .viewport { width: 100%; }
-}
-
 /* ---------- accessibility ---------- */
 
 .visually-hidden {
@@ -88,14 +63,66 @@ button { font: inherit; }
 /* ---------- panels ---------- */
 
 .panel {
+  position: relative;
+  isolation: isolate;
   min-width: 0;
-  background: var(--panel);
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  padding: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Continuous nine-slice frame around the new four-area workspace. */
+.dashboard-workspace { --frame-size: clamp(38px, 4vw, 72px); position: relative; isolation: isolate; padding: calc(var(--frame-size) + 16px); background: var(--panel); }
+.workspace-frame-palace { --workspace-frame: url("./assets/frame-studies/wide-palace.png"); }
+.dashboard-workspace::before { content: ""; position: absolute; inset: 0; z-index: 5; border: var(--frame-size) solid transparent; border-image-source: var(--workspace-frame); border-image-slice: 23% 10%; border-image-width: var(--frame-size); border-image-repeat: stretch; pointer-events: none; }
+.workspace-layout { display: grid; grid-template-columns: minmax(245px, 29%) minmax(0, 1fr); grid-template-rows: minmax(330px, 45%) minmax(340px, 55%); gap: 18px; min-height: clamp(750px, 82vh, 950px); }
+.workspace-layout > .panel { min-width: 0; min-height: 0; }
+.workspace-layout .recording { grid-column: 1; grid-row: 1 / 3; }
+.workspace-layout .steps { grid-column: 2; grid-row: 1; }
+.workspace-layout .breadboard-panel { grid-column: 2; grid-row: 2; }
+.workspace-layout .steps, .workspace-layout .breadboard-panel { border: 1px solid var(--border); border-radius: 6px; padding: 16px; background: var(--panel-dark); }
+.workspace-layout .steps h2 { font-size: 18px; }
+.workspace-layout .recording .slot { min-height: 0; align-items: stretch; }
+.workspace-layout .recording .viewport { width: 100%; flex: 1; min-height: 0; border-color: var(--brass); background: #0b0806; }
+.workspace-layout .recording .feed-screen { flex: 1; min-height: 0; width: 100%; overflow: hidden; }
+.workspace-layout .recording .stage { inset: auto; top: 0; left: 50%; height: 100%; width: auto; transform: translateX(-50%); }
+.workspace-layout .recording .feed-placeholder { position: relative; z-index: 1; text-align: center; padding: 16px; }
+.workspace-layout .recording .rivet { display: none; }
+.workspace-layout .recording .transport { padding: 8px; gap: 8px; font-size: 11px; }
+.workspace-layout .recording .round-btn { width: 36px; height: 36px; flex: none; }
+.workspace-layout .recording .text-btn { min-height: 36px; padding: 0 8px; font-size: 11px; }
+.workspace-layout .recording .panel-head { gap: 3px; }
+.workspace-layout .recording .panel-head .mono { font-size: 11px; }
+.panel-head { flex-wrap: wrap; }
+@media (max-width: 950px) {
+  .workspace-layout { grid-template-columns: minmax(220px, 37%) minmax(0, 1fr); grid-template-rows: minmax(270px, auto) minmax(330px, auto); min-height: 0; }
+  .workspace-layout .recording { grid-column: 1; grid-row: 1 / 3; min-height: 650px; }
+  .workspace-layout .steps { grid-column: 2; grid-row: 1; }
+  .workspace-layout .breadboard-panel { grid-column: 2; grid-row: 2; min-height: 340px; }
+}
+@media (max-width: 620px) {
+  .app { padding: 10px; }
+  .dashboard-workspace { --frame-size: 30px; padding: 44px; }
+  .workspace-layout { display: flex; flex-direction: column; }
+  .workspace-layout .recording { min-height: 580px; }
+  .workspace-layout .steps { min-height: 210px; }
+  .workspace-layout .breadboard-panel { min-height: 350px; }
+}
+
+/* Fit the main dashboard inside a 15-inch MacBook Pro browser viewport. */
+@media (min-width: 1100px) and (max-width: 1600px) and (max-height: 900px) {
+  .app { padding: 10px; }
+  .dashboard-workspace { --frame-size: 35px; padding: 40px; }
+  .workspace-layout {
+    min-height: 700px;
+    height: calc(100dvh - 100px);
+    grid-template-rows: minmax(280px, 40fr) minmax(406px, 60fr);
+    gap: 14px;
+  }
 }
 
 .panel h2 {
@@ -112,7 +139,7 @@ button { font: inherit; }
 
 /* recording */
 
-.recording { box-shadow: inset 0 0 0 4px var(--panel-dark), inset 0 0 0 5px #4a3420; }
+.recording { box-shadow: none; }
 
 /* The recording panel is sized in App.jsx so .feed-screen has the video's
    exact aspect ratio; the transport bar sits below it, not over it. */
@@ -355,8 +382,8 @@ button { font: inherit; }
 .porthole-wrap { flex: 1; display: flex; align-items: center; justify-content: center; }
 
 .porthole {
-  width: 210px;
-  height: 210px;
+  width: min(210px, 100%);
+  aspect-ratio: 1;
   border-radius: 50%;
   border: 5px double var(--brass);
   background: radial-gradient(circle at 50% 45%, #2e2116, #170f0a 70%);
