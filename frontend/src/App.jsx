@@ -3,6 +3,8 @@ import { lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
 import { BreadboardPanel, StepsPanel } from "./components/LessonPreview.jsx";
+import Inventory from "./components/Inventory.jsx";
+import { useInventory } from "./inventory.js";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
@@ -62,7 +64,7 @@ function RelayForm({ relay, onConnect, onClose }) {
   );
 }
 
-function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
+function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, status, onRelayChange, videoRef }) {
   const tracks = frame?.tracks || [];
   const [frameH, frameW] = sizeHW;
   const screenRef = useRef(null);
@@ -142,7 +144,7 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
 
           <div className="stage" style={stageStyle}>
             {showVideo && (
-              <img className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
+              <img ref={videoRef} crossOrigin="anonymous" className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
 
             {/* Detection boxes, scaled from frame pixels to the drawn frame */}
@@ -223,15 +225,12 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
 }
 
 export default function App() {
-  const [frameReceivedAt, setFrameReceivedAt] = useState(0);
   const [relay, setRelay] = useState(initialRelay);
   const [frame, setFrame] = useState(null);
   const [status, setStatus] = useState(relay ? "connecting" : "mock");
   const [paused, setPaused] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { setFrameReceivedAt(frame ? Date.now() : 0); }, [frame]);
 
   useEffect(() => {
     if (paused) return undefined;
@@ -261,6 +260,14 @@ export default function App() {
     setSizeHW((prev) => (prev[0] === frameSize[0] && prev[1] === frameSize[1] ? prev : frameSize));
   }, [frameSize?.[0], frameSize?.[1]]);
 
+  // Every part the tutor names and every project confirmed goes into the inventory, with a snapshot from the video.
+  const videoRef = useRef(null);
+  const inventory = useInventory();
+  const { recordLesson } = inventory;
+  useEffect(() => {
+    if (!paused) recordLesson(frame?.tutor, videoRef.current);
+  }, [frame, paused, recordLesson]);
+
   const recording = (
     <RecordingPanel
       frame={frame}
@@ -271,6 +278,7 @@ export default function App() {
       relay={relay}
       status={paused ? "paused" : status}
       onRelayChange={changeRelay}
+      videoRef={videoRef}
     />
   );
   return (
@@ -279,12 +287,11 @@ export default function App() {
       <div className="dashboard-workspace workspace-frame-desk">
         <div className="workspace-layout">
           {recording}
-          <StepsPanel stepIndex={stepIndex} onStepChange={setStepIndex} mode="auto"
-            frame={frame} detectionLive={status === "live" && !paused}
-            detectionFresh={now - frameReceivedAt < 5000} />
-          <BreadboardPanel stepIndex={stepIndex} />
+          <StepsPanel lesson={frame?.tutor} />
+          <BreadboardPanel lesson={frame?.tutor} />
         </div>
       </div>
+      <Inventory inventory={inventory} />
     </div>
   );
 }

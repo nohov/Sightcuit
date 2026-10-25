@@ -91,6 +91,22 @@ Without a relay, the hero remains in a stable preview state. It does not cycle
 through mock device labels. `VITE_RELAY_URL` and `VITE_RELAY_TOKEN` set a
 default relay at build time.
 
+## Inventory
+
+The brass **Inventory** tab on the bottom edge opens a drawer with two tabs
+(drawer design from `gurashish/inventory-v2`, fed by the tutor instead of a
+fixed kit):
+
+- **My Parts**: every part the tutor has named (`tutor.parts` in each
+  `/events` message), with a snapshot from the glasses video at its first
+  sighting and a count of how many times it was named.
+- **My Projects**: every build the user confirmed, with its steps and parts.
+  It marks itself complete the first time the tutor reports it finished and
+  stays complete if the user steps back; **Reset completion** clears it. It
+  records lesson progress only and does not verify wiring.
+
+Kept in this browser (`localStorage`).
+
 ## Structure
 
 ```text

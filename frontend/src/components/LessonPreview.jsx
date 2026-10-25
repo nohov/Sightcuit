@@ -1,8 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
 import "./lesson-preview.css";
-import "../../../holograms-local/hologram-display.js";
-import BreadboardScene from "./BreadboardScenes.jsx";
-import { detectedPreview } from "../componentPreview.js";
 
 // Local UI copy based on DESIGN.md v0.12. Navigation previews a prepared lesson;
 // it neither verifies wiring nor sends session commands to the relay.
@@ -49,23 +46,6 @@ const COMPONENT_MODELS = [
   ["led", "Red LED"], ["resistor", "330 Ω resistor"], ["jumper", "Male-to-male jumpers ×2"],
 ];
 
-function ModelTab({ selected, observation, automatic }) {
-  const modelName = COMPONENT_MODELS.find(([id]) => id === selected)?.[1] ?? "Awaiting component";
-  return (
-    <div className="lesson-model-tab">
-      <div className={`lesson-model-gauge ${selected ? "is-model" : ""}`}>
-        {selected ? <hologram-display device={selected} variant="drafting" compact="" /> : (
-          <div className="lesson-model-waiting">Waiting for one supported component detection</div>
-        )}
-      </div>
-      <p className="lesson-model-name">{modelName}</p>
-      <p className="lesson-model-caption" role="status">
-        {automatic ? (observation ? `Detected: ${observation.observed_label}` : "Auto · no unambiguous live component") : "Manual component preview"}
-      </p>
-    </div>
-  );
-}
-
 export function ModelPreviewControls({ mode, onModeChange }) {
   return (
     <section className="model-preview-controls" aria-label="Temporary model design controls">
@@ -80,71 +60,77 @@ export function ModelPreviewControls({ mode, onModeChange }) {
   );
 }
 
-export function StepsPanel({ stepIndex, onStepChange, frame, detectionLive = false, detectionFresh = false, mode = "auto" }) {
-  const step = LESSON_STEPS[stepIndex];
-  const observation = detectedPreview(frame, detectionLive, detectionFresh);
-  const automatic = mode === "auto";
-  const selected = automatic ? observation?.model_id : mode;
+// Live from the tutor's /events "tutor" field: the picked build's steps (finished ones crossed out) and every
+// part the user has had named. Null before the tutor sends anything, e.g. on the mock feed or live_runner.
+export function StepsPanel({ lesson }) {
+  const steps = lesson?.steps || [];
+  const parts = lesson?.parts || [];
+  const need = (lesson?.needed || []).filter((item) => !item.have).map((item) => item.part);
+  const done = (i) => lesson.finished || i < lesson.step_index;
   return (
     <section className="panel steps" aria-labelledby="steps-heading">
       <div className="lesson-step-layout">
         <div className="lesson-step-main">
-          <h2 id="steps-heading" className="lesson-current-step">Step {stepIndex + 1}</h2>
-          <h3>{step.title}</h3>
-          <p>{step.action}</p>
-          <p className="lesson-why">{step.why}</p>
-          <div className="lesson-required"><strong>Needed now</strong><span>{step.required}</span></div>
+          <h2 id="steps-heading" className="lesson-current-step">{lesson?.project || "Steps"}</h2>
+          {steps.length ? (
+            <ol className="lesson-step-list">
+              {steps.map((say, i) => (
+                <li key={i} className={done(i) ? "is-done" : i === lesson.step_index ? "is-current" : ""}
+                  aria-current={!done(i) && i === lesson.step_index ? "step" : undefined}>
+                  {done(i) ? <s>{say}</s> : say}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="lesson-why">{lesson ? "No project picked yet. Ask what you can make, then pick one." : "Waiting for the tutor…"}</p>
+          )}
         </div>
-        <ModelTab selected={selected} observation={observation} automatic={automatic} />
-      </div>
-      <div className="lesson-step-footer">
-        <div className="lesson-step-buttons">
-          <button type="button" onClick={() => onStepChange(stepIndex - 1)} disabled={stepIndex === 0}>Back</button>
-          <button type="button" onClick={() => onStepChange(stepIndex + 1)} disabled={stepIndex === LESSON_STEPS.length - 1}>Next</button>
+        <div className="lesson-step-main">
+          <h2 className="lesson-current-step">Parts found</h2>
+          {parts.length ? (
+            <ul className="lesson-step-list">{parts.map((part) => <li key={part}>{part}</li>)}</ul>
+          ) : (
+            <p className="lesson-why">Ask "what is this?" while looking at a part.</p>
+          )}
+          {need.length > 0 && (
+            <>
+              <h3 className="parts-need-heading">Still need</h3>
+              <ul className="lesson-step-list">
+                {need.map((part) => (
+                  <li key={part} className="part-need"><span aria-hidden="true">✗ </span>{part}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       </div>
     </section>
   );
 }
-const LESSON_PARTS = [
-  { name: "Arduino UNO R3", step: 1 },
-  { name: "Breadboard", step: 1 },
-  { name: "Jumper wire 1", step: 1 },
-  { name: "330 Ω resistor", step: 2 },
-  { name: "Red LED", step: 3 },
-  { name: "Jumper wire 2", step: 3 },
-  { name: "USB cable", step: 4 },
-];
-
-function PartsList({ stepIndex }) {
+// Live from the tutor's confirmed plan: what the current step looks like when done, and any code the plan
+// wrote. The plan's still-needed parts are listed under Parts found.
+export function BreadboardPanel({ lesson }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => navigator.clipboard?.writeText(lesson.code).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, () => {});
   return (
-    <aside className="breadboard-parts" aria-label="Lesson parts by step">
-      <h3>Parts</h3>
-
-      <ul>
-        {LESSON_PARTS.map((part) => {
-          const state = stepIndex === 0 ? "inventory" : part.step < stepIndex ? "earlier" : part.step === stepIndex ? "now" : "later";
-          return (
-            <li className={`part-${state}`} key={part.name}
-              aria-label={`${part.name}${state === "earlier" ? ": used in an earlier step" : state === "now" ? ": needed in this step" : ""}`}>
-              <span>{part.name}</span>
-
-            </li>
-          );
-        })}
-      </ul>
-
-    </aside>
-  );
-}
-
-export function BreadboardPanel({ stepIndex }) {
-  return (
-    <section className="panel breadboard-panel" aria-label="Breadboard setup">
-      <div className="breadboard-workspace">
-        <PartsList stepIndex={stepIndex} />
-        <div className="breadboard-drawing breadboard-drawing-simple">
-          <BreadboardScene stepIndex={stepIndex} variant="original" />
+    <section className="panel breadboard-panel" aria-label="Plan">
+      <div className="plan-workspace">
+        <div className="plan-detail">
+          <h3>This step is done when</h3>
+          <p>{lesson?.check || "No step yet."}</p>
+          {/* Only a plan that needs a microcontroller comes with code; nothing is assumed before then. */}
+          {lesson?.code && (
+            <>
+              <div className="plan-code-head">
+                <h3>Code</h3>
+                <button type="button" className="text-btn" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+              </div>
+              <pre className="plan-code mono"><code>{lesson.code}</code></pre>
+            </>
+          )}
         </div>
       </div>
     </section>
