@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="800" viewBox="0 0 1440 800" fill="none" aria-hidden="true">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="800" viewBox="0 0 1440 800" preserveAspectRatio="none" fill="none" aria-hidden="true">
 <defs>
   <linearGradient id="brass" x1="0" y1="0" x2="1440" y2="800" gradientUnits="userSpaceOnUse">
     <stop stop-color="#6e491b"/><stop offset=".15" stop-color="#dfb865"/><stop offset=".32" stop-color="#846023"/><stop offset=".52" stop-color="#f0d286"/><stop offset=".72" stop-color="#94702c"/><stop offset="1" stop-color="#c39442"/>

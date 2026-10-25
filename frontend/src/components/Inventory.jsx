@@ -1,20 +1,11 @@
 // Inventory drawer: a brass tab at the bottom of the dashboard slides up a
-// panel with two tabs — My Parts (the kit, with glasses snapshots once seen)
-// and My Projects (each project, with a Completed badge next to its name once
-// the lesson has reached its final step).
+// panel with two tabs — My Parts (every part the tutor has named, with a
+// glasses snapshot from the first sighting) and My Projects (every build the
+// user confirmed, with a Completed badge once the tutor reports it finished).
 
 import React, { useEffect, useRef, useState } from "react";
-import { KIT } from "../inventory.js";
-import { LESSON_STEPS } from "./LessonPreview.jsx";
+import { partKey } from "../inventory.js";
 import "./inventory.css";
-
-export const LED_PROJECT = {
-  id: "red-led",
-  title: "Light up a red LED",
-  parts: ["Arduino UNO R3", "Breadboard", "330 Ω resistor", "Red LED", "2 jumper wires", "USB cable"],
-};
-
-const PROJECTS = [LED_PROJECT];
 
 const when = (ms) =>
   new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -35,91 +26,61 @@ function timeAgo(ms) {
   return new Date(ms).toLocaleDateString();
 }
 
-// Simple drawings for the two parts without Fritzing artwork.
-function PartDrawing({ id }) {
-  if (id === "jumper") {
-    return (
-      <svg viewBox="0 0 120 80" className="inv-drawing" aria-hidden="true">
-        <path d="M14 22 C40 2, 80 60, 106 30" stroke="#d4553a" strokeWidth="6" fill="none" strokeLinecap="round" />
-        <path d="M14 52 C44 30, 76 84, 106 58" stroke="#c9a24a" strokeWidth="6" fill="none" strokeLinecap="round" />
-        {[[14, 22], [106, 30], [14, 52], [106, 58]].map(([x, y]) => (
-          <rect key={`${x}-${y}`} x={x - 5} y={y - 4} width="10" height="8" rx="1" fill="#2a1f14" stroke="#eadbc0" strokeWidth="1.2" />
-        ))}
-      </svg>
-    );
-  }
+function PartCard({ id, part, usedIn, onForget }) {
   return (
-    <svg viewBox="0 0 120 80" className="inv-drawing" aria-hidden="true">
-      <path d="M12 40 H66" stroke="#2a1f14" strokeWidth="7" strokeLinecap="round" />
-      <path d="M12 40 H66" stroke="#6b5a44" strokeWidth="5" strokeLinecap="round" />
-      <rect x="66" y="27" width="26" height="26" rx="3" fill="#3a2a1a" stroke="#c9a24a" strokeWidth="2" />
-      <rect x="92" y="31" width="16" height="18" rx="1" fill="#b9b9b9" stroke="#555" />
-      <rect x="96" y="35" width="8" height="10" fill="#555" />
-    </svg>
-  );
-}
-
-function PartCard({ part, seen, onForget }) {
-  const status = part.notDetected
-    ? "The glasses can't spot this one yet — check it yourself."
-    : seen
-      ? `Spotted ${seen.sightings}× · ${timeAgo(seen.lastSeen)}`
-      : "Not spotted by the glasses yet.";
-  return (
-    <article className={`inv-card ${seen ? "seen" : ""}`}>
+    <article className="inv-card seen">
       <div className="inv-thumb">
-        {seen?.thumb ? (
-          <img src={seen.thumb} alt={`Glasses snapshot of the ${part.name}`} />
-        ) : part.art ? (
-          <img className="inv-art" src={part.art} alt={`Drawing of the ${part.name}`} />
+        {part.thumb ? (
+          <img src={part.thumb} alt={`Glasses snapshot when the ${part.name} was named`} />
         ) : (
-          <PartDrawing id={part.id} />
+          <div className="inv-nophoto mono">No snapshot</div>
         )}
-        <span className={`inv-badge mono ${seen ? "on" : ""}`}>{seen?.thumb ? "SNAPSHOT" : seen ? "SEEN" : "DRAWING"}</span>
+        <span className="inv-badge mono on">{part.thumb ? "SNAPSHOT" : "SEEN"}</span>
         <span className="inv-rivet tl" />
         <span className="inv-rivet tr" />
         <span className="inv-rivet bl" />
         <span className="inv-rivet br" />
       </div>
-      <div className="inv-plate mono">
-        {part.name}
-        {part.qty > 1 && ` ×${part.qty}`}
-      </div>
+      <div className="inv-plate mono">{part.name}</div>
       <div className="inv-body">
-        <div className={`inv-status mono ${seen ? "on" : ""}`}>{status}</div>
-        <p className="inv-desc">{part.what}</p>
-        <div className="inv-used">
-          Used in <span>{LED_PROJECT.title}</span>
+        <div className="inv-status mono on">
+          Seen {part.sightings}× · {timeAgo(part.lastSeen)}
         </div>
+        {usedIn.length > 0 && (
+          <div className="inv-used">
+            Used in <span>{usedIn.join(", ")}</span>
+          </div>
+        )}
       </div>
-      {seen && (
-        <button type="button" className="inv-remove" aria-label={`Forget the ${part.name} sighting`} onClick={() => onForget(part.id)}>
-          ×
-        </button>
-      )}
+      <button type="button" className="inv-remove" aria-label={`Forget the ${part.name}`} onClick={() => onForget(id)}>
+        ×
+      </button>
     </article>
   );
 }
 
-function PartsTab({ parts, onForget }) {
-  const seenCount = KIT.filter((p) => parts[p.id]).length;
+function PartsTab({ parts, projects, onForget }) {
+  const entries = Object.entries(parts).sort(([, a], [, b]) => b.lastSeen - a.lastSeen);
+  const usedIn = (key) =>
+    Object.values(projects).filter((p) => p.parts.some((name) => partKey(name) === key)).map((p) => p.title);
   return (
     <>
       <p className="inv-note">
-        {seenCount} of {KIT.length} parts spotted. A part is marked only when the glasses detect it live; the first
-        sighting saves a snapshot.
+        {entries.length
+          ? `${entries.length} part${entries.length === 1 ? "" : "s"} named so far. Each is added when the tutor names it; the first time saves a snapshot.`
+          : 'Nothing yet. Look at a part and ask "what is this?".'}
       </p>
       <div className="inv-grid">
-        {KIT.map((part) => (
-          <PartCard key={part.id} part={part} seen={parts[part.id]} onForget={onForget} />
+        {entries.map(([key, part]) => (
+          <PartCard key={key} id={key} part={part} usedIn={usedIn(key)} onForget={onForget} />
         ))}
       </div>
     </>
   );
 }
 
-function ProjectCard({ project, stepIndex, completedAt, onReset }) {
-  const done = Boolean(completedAt);
+function ProjectCard({ project, onReset }) {
+  const done = Boolean(project.completedAt);
   return (
     <article className={`inv-project ${done ? "done" : ""}`}>
       <div className="inv-project-head">
@@ -132,30 +93,32 @@ function ProjectCard({ project, stepIndex, completedAt, onReset }) {
           )}
         </div>
         <div className="mono muted">
-          {done ? `Completed ${when(completedAt)}` : `Step ${stepIndex + 1} of ${LESSON_STEPS.length}`}
+          {done ? `Completed ${when(project.completedAt)}` : `Step ${project.step + 1} of ${project.steps.length}`}
         </div>
       </div>
 
       <ol className="inv-steps">
-        {LESSON_STEPS.map((s, i) => {
-          const state = done || i < stepIndex ? "done" : i === stepIndex ? "now" : "";
+        {project.steps.map((say, i) => {
+          const state = done || i < project.step ? "done" : i === project.step ? "now" : "";
           return (
-            <li key={s.title} className={state}>
+            <li key={i} className={state}>
               <span className="inv-step-dot mono">{state === "done" ? "✓" : i + 1}</span>
-              <span>{s.title}</span>
+              <span>{say}</span>
             </li>
           );
         })}
       </ol>
 
-      <div className="inv-parts-used">
-        {project.parts.map((p) => (
-          <span key={p}>{p}</span>
-        ))}
-      </div>
+      {project.parts.length > 0 && (
+        <div className="inv-parts-used">
+          {project.parts.map((p) => (
+            <span key={p}>{p}</span>
+          ))}
+        </div>
+      )}
 
       {done && (
-        <button type="button" className="inv-reset" onClick={() => onReset(project.id)}>
+        <button type="button" className="inv-reset" onClick={() => onReset(project.title)}>
           Reset completion
         </button>
       )}
@@ -163,13 +126,14 @@ function ProjectCard({ project, stepIndex, completedAt, onReset }) {
   );
 }
 
-export default function Inventory({ inventory, completed, onReset, stepIndex }) {
+export default function Inventory({ inventory }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("parts");
   const closeRef = useRef(null);
   const tabRef = useRef(null);
-  const seenCount = KIT.filter((p) => inventory.parts[p.id]).length;
-  const doneCount = PROJECTS.filter((p) => completed[p.id]).length;
+  const projects = Object.values(inventory.projects).sort((a, b) => b.started - a.started);
+  const partCount = Object.keys(inventory.parts).length;
+  const doneCount = projects.filter((p) => p.completedAt).length;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -196,7 +160,7 @@ export default function Inventory({ inventory, completed, onReset, stepIndex }) 
       >
         <Chevron up />
         Inventory
-        <span className="inv-count mono">{seenCount + doneCount}</span>
+        <span className="inv-count mono">{partCount + doneCount}</span>
       </button>
 
       <div className={`inv-backdrop ${open ? "open" : ""}`} onClick={close} aria-hidden="true" />
@@ -213,7 +177,7 @@ export default function Inventory({ inventory, completed, onReset, stepIndex }) 
           <div>
             <h2>Inventory</h2>
             <div className="mono muted">
-              {seenCount}/{KIT.length} parts spotted · {doneCount}/{PROJECTS.length} projects completed
+              {partCount} part{partCount === 1 ? "" : "s"} named · {doneCount}/{projects.length} projects completed
             </div>
           </div>
           <div className="inv-tabs" role="tablist" aria-label="Inventory sections">
@@ -234,13 +198,17 @@ export default function Inventory({ inventory, completed, onReset, stepIndex }) 
 
         <div className="inv-scroll" role="tabpanel">
           {tab === "parts" ? (
-            <PartsTab parts={inventory.parts} onForget={inventory.forgetPart} />
+            <PartsTab parts={inventory.parts} projects={inventory.projects} onForget={inventory.forgetPart} />
           ) : (
             <>
-              {PROJECTS.map((p) => (
-                <ProjectCard key={p.id} project={p} stepIndex={stepIndex} completedAt={completed[p.id]} onReset={onReset} />
+              {projects.map((p) => (
+                <ProjectCard key={p.title} project={p} onReset={inventory.resetProject} />
               ))}
-              <p className="inv-note">A project marks itself complete when you reach its last step.</p>
+              <p className="inv-note">
+                {projects.length
+                  ? "A project marks itself complete when the tutor reports its last step done."
+                  : "No projects yet. Ask what you can make, pick one, and say yes."}
+              </p>
             </>
           )}
         </div>

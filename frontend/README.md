@@ -4,9 +4,11 @@ Steampunk dashboard with a vertical Meta glasses recording, a five-step LED
 lesson preview, and a conceptual breadboard drawing. The model circle renders
 drafting-style reference artwork for a supported component observation.
 
-The desktop layout has a compact rule for a 15-inch MacBook Pro sized browser
-window (about 1440 CSS pixels wide with 800 pixels of usable height). Shorter
-browser windows scroll instead of squeezing the lesson panels over each other.
+On desktop (wider than 950 CSS pixels) the dashboard fills the browser window
+at any size, and the 1440×800 desk frame stretches to match. Windows shorter
+than 640 pixels scroll instead of squeezing the lesson panels; on short screens
+the Steps list scrolls itself to the current step. Phone layouts are not
+supported.
 
 ## Run it
 
@@ -93,17 +95,17 @@ default relay at build time.
 
 ## Inventory
 
-The brass **Inventory** tab on the bottom edge opens a drawer with two tabs:
+The brass **Inventory** tab on the bottom edge opens a drawer with two tabs
+(drawer design from `gurashish/inventory-v2`, fed by the tutor instead of a
+fixed kit):
 
-- **My Parts**: the LED kit. A part is marked spotted only when a fresh live
-  relay event carries its `component_preview.model_id`; the first sighting
-  saves a snapshot cropped from the glasses video. The USB cable has no
-  detector class and is never marked.
-- **My Projects**: each project with its steps and parts. A project marks
-  itself complete the first time the lesson reaches its last step: a
-  **Completed** badge appears next to its name, with the time. It stays
-  complete if the user steps back; **Reset completion** clears it. It records
-  lesson progress only and does not verify wiring.
+- **My Parts**: every part the tutor has named (`tutor.parts` in each
+  `/events` message), with a snapshot from the glasses video at its first
+  sighting and a count of how many times it was named.
+- **My Projects**: every build the user confirmed, with its steps and parts.
+  It marks itself complete the first time the tutor reports it finished and
+  stays complete if the user steps back; **Reset completion** clears it. It
+  records lesson progress only and does not verify wiring.
 
 Kept in this browser (`localStorage`).
 
@@ -114,9 +116,6 @@ src/
   App.jsx                    dashboard layout and recording panel
   components/LessonPreview.jsx  five-step preview and breadboard concept
   components/lesson-preview.css  lesson panel styles
-  components/Inventory.jsx   inventory drawer (My Parts, My Projects)
-  components/inventory.css   inventory drawer styles
-  inventory.js               part sightings, snapshots, project completion
   devices.js                 per-label device data (placeholders)
   feed.js                    relay connection (video + detections) and mock feed
   styles.css                 theme tokens and styles

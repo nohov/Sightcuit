@@ -46,7 +46,7 @@ RESPONSE_SCHEMA = {
 }
 
 
-def gemini_transport(payload: dict[str, Any], model: str, timeout: float) -> dict[str, Any]:
+def gemini_transport(payload: dict[str, Any], model: str, timeout: float, retries: int = 3) -> dict[str, Any]:
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -57,14 +57,14 @@ def gemini_transport(payload: dict[str, Any], model: str, timeout: float) -> dic
         headers={"Content-Type": "application/json", "x-goog-api-key": key},
         method="POST",
     )
-    # shortcut: fixed 3 retries with backoff on rate limit/overload; add a client-side rate limiter if runs still fail.
-    for attempt in range(4):
+    # shortcut: fixed retries with backoff on rate limit/overload; add a client-side rate limiter if runs still fail.
+    for attempt in range(retries + 1):
         try:
             with urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
-            if exc.code in RETRY_STATUSES and attempt < 3:
+            detail = exc.read().decode("utf-8", errors="replace")[:3000]  # long enough to name the exhausted quota
+            if exc.code in RETRY_STATUSES and attempt < retries:
                 time.sleep(2 ** (attempt + 2))
                 continue
             raise RuntimeError(f"Gemini HTTP {exc.code}: {detail}") from exc

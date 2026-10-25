@@ -1,8 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./lesson-preview.css";
-import "../../../holograms-local/hologram-display.js";
-import BreadboardScene from "./BreadboardScenes.jsx";
-import { detectedPreview } from "../componentPreview.js";
 
 // Local UI copy based on DESIGN.md v0.12. Navigation previews a prepared lesson;
 // it neither verifies wiring nor sends session commands to the relay.
@@ -49,23 +46,6 @@ const COMPONENT_MODELS = [
   ["led", "Red LED"], ["resistor", "330 Ω resistor"], ["jumper", "Male-to-male jumpers ×2"],
 ];
 
-function ModelTab({ selected, observation, automatic }) {
-  const modelName = COMPONENT_MODELS.find(([id]) => id === selected)?.[1] ?? "Awaiting component";
-  return (
-    <div className="lesson-model-tab">
-      <div className={`lesson-model-gauge ${selected ? "is-model" : ""}`}>
-        {selected ? <hologram-display device={selected} variant="drafting" compact="" /> : (
-          <div className="lesson-model-waiting">Waiting for one supported component detection</div>
-        )}
-      </div>
-      <p className="lesson-model-name">{modelName}</p>
-      <p className="lesson-model-caption" role="status">
-        {automatic ? (observation ? `Detected: ${observation.observed_label}` : "Auto · no unambiguous live component") : "Manual component preview"}
-      </p>
-    </div>
-  );
-}
-
 export function ModelPreviewControls({ mode, onModeChange }) {
   return (
     <section className="model-preview-controls" aria-label="Temporary model design controls">
@@ -80,71 +60,108 @@ export function ModelPreviewControls({ mode, onModeChange }) {
   );
 }
 
-export function StepsPanel({ stepIndex, onStepChange, frame, detectionLive = false, detectionFresh = false, mode = "auto" }) {
-  const step = LESSON_STEPS[stepIndex];
-  const observation = detectedPreview(frame, detectionLive, detectionFresh);
-  const automatic = mode === "auto";
-  const selected = automatic ? observation?.model_id : mode;
+// Live from the tutor's /events "tutor" field: the picked build's steps (finished ones crossed out) and the
+// parts it needs, marked had once the tutor has named them. Scanned parts the build doesn't use are left out.
+// Null before the tutor sends anything, e.g. on the mock feed or live_runner.
+export function StepsPanel({ lesson }) {
+  const steps = lesson?.steps || [];
+  const needed = lesson?.needed || [];
+  const done = (i) => lesson.finished || i < lesson.step_index;
+  // On short screens the list scrolls; keep the current step in view. Scrolls only the list, never the page.
+  const currentRef = useRef(null);
+  useEffect(() => {
+    const reveal = () => {
+      const item = currentRef.current;
+      const scrolls = (el) => el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY);
+      let box = item?.parentElement; // the nearest box that scrolls: the list, or else the panel itself
+      while (box && !box.classList.contains("panel") && !scrolls(box)) box = box.parentElement;
+      if (!box) return;
+      const offset = item.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      if (offset < 0 || offset + item.offsetHeight > box.clientHeight) box.scrollTop += offset - 8;
+    };
+    reveal();
+    document.fonts?.ready.then(reveal); // web fonts change line heights after the first render
+  }, [lesson?.step_index, lesson?.project]);
   return (
     <section className="panel steps" aria-labelledby="steps-heading">
       <div className="lesson-step-layout">
         <div className="lesson-step-main">
-          <h2 id="steps-heading" className="lesson-current-step">Step {stepIndex + 1}</h2>
-          <h3>{step.title}</h3>
-          <p>{step.action}</p>
-          <p className="lesson-why">{step.why}</p>
-          <div className="lesson-required"><strong>Needed now</strong><span>{step.required}</span></div>
+          <h2 id="steps-heading" className="lesson-current-step">{lesson?.project || "Steps"}</h2>
+          {steps.length ? (
+            <ol className="lesson-step-list">
+              {steps.map((say, i) => (
+                <li key={i} ref={i === lesson.step_index ? currentRef : null}
+                  className={done(i) ? "is-done" : i === lesson.step_index ? "is-current" : ""}
+                  aria-current={!done(i) && i === lesson.step_index ? "step" : undefined}>
+                  {done(i) ? <s>{say}</s> : say}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="lesson-why">{lesson ? "No project picked yet. Ask what you can make, then pick one." : "Waiting for the tutor…"}</p>
+          )}
         </div>
-        <ModelTab selected={selected} observation={observation} automatic={automatic} />
-      </div>
-      <div className="lesson-step-footer">
-        <div className="lesson-step-buttons">
-          <button type="button" onClick={() => onStepChange(stepIndex - 1)} disabled={stepIndex === 0}>Back</button>
-          <button type="button" onClick={() => onStepChange(stepIndex + 1)} disabled={stepIndex === LESSON_STEPS.length - 1}>Next</button>
+        <div className="lesson-step-main">
+          <h2 className="lesson-current-step">Parts Needed</h2>
+          {needed.length ? (
+            <ul className="lesson-step-list">
+              {needed.map(({ part, have }, i) => (
+                <li key={i} className={have ? "" : "part-need"}>
+                  <span aria-hidden="true">{have ? "✓ " : "✗ "}</span>{part}
+                  <span className="visually-hidden">{have ? " (have)" : " (missing)"}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="lesson-why">
+              {steps.length ? "This project has no parts list." : "Pick a project to see the parts it needs."}
+            </p>
+          )}
         </div>
       </div>
     </section>
   );
 }
-const LESSON_PARTS = [
-  { name: "Arduino UNO R3", step: 1 },
-  { name: "Breadboard", step: 1 },
-  { name: "Jumper wire 1", step: 1 },
-  { name: "330 Ω resistor", step: 2 },
-  { name: "Red LED", step: 3 },
-  { name: "Jumper wire 2", step: 3 },
-  { name: "USB cable", step: 4 },
-];
-
-function PartsList({ stepIndex }) {
+// Live from the tutor's confirmed plan: what the current step looks like when done, and any code the plan
+// wrote. The plan's parts, had and missing, are listed under Parts Needed.
+export function BreadboardPanel({ lesson }) {
+  const [copied, setCopied] = useState(false);
+  // The clipboard needs localhost or https; elsewhere Copy says so and the code can be selected by hand.
+  const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(lesson.code) : Promise.reject()).then(
+    () => setCopied("Copied"), () => setCopied("Copy failed: select the code below")).then(
+    () => setTimeout(() => setCopied(false), 2500));
   return (
-    <aside className="breadboard-parts" aria-label="Lesson parts by step">
-      <h3>Parts</h3>
-
-      <ul>
-        {LESSON_PARTS.map((part) => {
-          const state = stepIndex === 0 ? "inventory" : part.step < stepIndex ? "earlier" : part.step === stepIndex ? "now" : "later";
-          return (
-            <li className={`part-${state}`} key={part.name}
-              aria-label={`${part.name}${state === "earlier" ? ": used in an earlier step" : state === "now" ? ": needed in this step" : ""}`}>
-              <span>{part.name}</span>
-
-            </li>
-          );
-        })}
-      </ul>
-
-    </aside>
-  );
-}
-
-export function BreadboardPanel({ stepIndex }) {
-  return (
-    <section className="panel breadboard-panel" aria-label="Breadboard setup">
-      <div className="breadboard-workspace">
-        <PartsList stepIndex={stepIndex} />
-        <div className="breadboard-drawing breadboard-drawing-simple">
-          <BreadboardScene stepIndex={stepIndex} variant="original" />
+    <section className="panel breadboard-panel" aria-label="Plan">
+      <div className="plan-workspace">
+        <div className="plan-detail">
+          <h3>This step is done when</h3>
+          <p>{lesson?.check || "No step yet."}</p>
+          {/* Only a plan that needs a microcontroller comes with code; nothing is assumed before then. */}
+          {lesson?.code && (
+            <>
+              <div className="plan-code-head">
+                <h3>Code</h3>
+                <button type="button" className="text-btn" onClick={copy}>{copied || "Copy"}</button>
+              </div>
+              <div className="plan-code-body">
+              <details className="ide-guide" open>
+                <summary>How to put this code on the board</summary>
+                <ol>
+                  <li>
+                    Download the Arduino IDE from{" "}
+                    <a href="https://www.arduino.cc/en/software" target="_blank" rel="noreferrer">arduino.cc/en/software</a>,
+                    install it and open it.
+                  </li>
+                  <li>Plug the Arduino Uno into this computer with its USB cable.</li>
+                  <li>Choose <b>Tools → Board → Arduino Uno</b>, then <b>Tools → Port</b> and the port that names the Uno.</li>
+                  <li>Press <b>Copy</b> above. In the Arduino IDE choose <b>File → New Sketch</b>, click in the new sketch's code window, select everything in it (<b>⌘A</b> or <b>Ctrl+A</b>) and paste over it (<b>⌘V</b> or <b>Ctrl+V</b>).</li>
+                  <li>Press <b>Upload</b> (the → arrow) and wait for "Done uploading".</li>
+                </ol>
+              </details>
+              <pre className="plan-code mono"><code>{lesson.code}</code></pre>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </section>

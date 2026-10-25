@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
-import { BreadboardPanel, LESSON_STEPS, StepsPanel } from "./components/LessonPreview.jsx";
-import Inventory, { LED_PROJECT } from "./components/Inventory.jsx";
-import { useInventory, useProjects } from "./inventory.js";
+import { BreadboardPanel, StepsPanel } from "./components/LessonPreview.jsx";
+import Inventory from "./components/Inventory.jsx";
+import { useInventory } from "./inventory.js";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
@@ -225,15 +225,12 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
 }
 
 export default function App() {
-  const [frameReceivedAt, setFrameReceivedAt] = useState(0);
   const [relay, setRelay] = useState(initialRelay);
   const [frame, setFrame] = useState(null);
   const [status, setStatus] = useState(relay ? "connecting" : "mock");
   const [paused, setPaused] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { setFrameReceivedAt(frame ? Date.now() : 0); }, [frame]);
 
   useEffect(() => {
     if (paused) return undefined;
@@ -263,17 +260,13 @@ export default function App() {
     setSizeHW((prev) => (prev[0] === frameSize[0] && prev[1] === frameSize[1] ? prev : frameSize));
   }, [frameSize?.[0], frameSize?.[1]]);
 
-  // Parts the glasses spot live go into the inventory, with a snapshot from the video.
+  // Every part the tutor names and every project confirmed goes into the inventory, with a snapshot from the video.
   const videoRef = useRef(null);
   const inventory = useInventory();
-  const { recordFrame } = inventory;
-  const detectionLive = status === "live" && !paused;
+  const { recordLesson } = inventory;
   useEffect(() => {
-    recordFrame(frame, sizeHW, videoRef.current, detectionLive);
-  }, [frame, sizeHW, detectionLive, recordFrame]);
-
-  // The LED project marks itself complete when the lesson reaches its last step.
-  const projects = useProjects(LED_PROJECT.id, stepIndex, LESSON_STEPS.length);
+    if (!paused) recordLesson(frame?.tutor, videoRef.current);
+  }, [frame, paused, recordLesson]);
 
   const recording = (
     <RecordingPanel
@@ -294,13 +287,11 @@ export default function App() {
       <div className="dashboard-workspace workspace-frame-desk">
         <div className="workspace-layout">
           {recording}
-          <StepsPanel stepIndex={stepIndex} onStepChange={setStepIndex} mode="auto"
-            frame={frame} detectionLive={status === "live" && !paused}
-            detectionFresh={now - frameReceivedAt < 5000} />
-          <BreadboardPanel stepIndex={stepIndex} />
+          <StepsPanel lesson={frame?.tutor} />
+          <BreadboardPanel lesson={frame?.tutor} />
         </div>
       </div>
-      <Inventory inventory={inventory} completed={projects.completed} onReset={projects.reset} stepIndex={stepIndex} />
+      <Inventory inventory={inventory} />
     </div>
   );
 }
