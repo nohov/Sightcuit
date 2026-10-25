@@ -25,6 +25,17 @@ configuration. The owner-approved exceptions for the bake-off are:
   to the owner's laptop via `recognition/live_runner.py --listen`; Gemini calls
   stay on the laptop.
 
+- A circuit tutor, separate from the five-class evaluation:
+  `recognition/tutor_runner.py` sends the newest frame to the models frozen in
+  `recognition/tutor_config.json` (Gemini, and OpenAI if configured) only when
+  the user asks a question or presses the glasses capture button, never as a
+  continuous stream. Use `GEMINI_API_KEY` / `OPENAI_API_KEY` from the
+  environment only, under the same never-write rule. Speech recognition and
+  speech output run on the iPhone; audio never leaves it. The iOS app may add
+  the experimental `MWDATInputs` module for the capture button. Resistor values
+  come from `recognition/resistor.py`, never from a model. Model confidence
+  is null. No tutor accuracy is claimed until a recorded resistor eval is scored.
+
 Otherwise use only already-installed runtimes, existing local weights, and
 permitted local images. If any are missing, stop at a runnable specification
 and report `needs_input`; never simulate inference.

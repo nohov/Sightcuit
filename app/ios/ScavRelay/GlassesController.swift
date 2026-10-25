@@ -18,6 +18,9 @@ final class GlassesController: ObservableObject {
   @Published var relayError: String?
 
   let relay = RelayClient()
+  /// Short press of the glasses capture button: the tutor's "step done" press. Returns false when the tutor is
+  /// not listening, so the press speaks descriptions instead. The stream keeps running.
+  var onCapture: (() -> Bool)?
   private var session: DeviceSession?
   private var camera: Camera?
   private let tokens = ListenerTokenBag()
@@ -93,8 +96,9 @@ final class GlassesController: ObservableObject {
           return
         }
       }
-      // Medium is 504x896; 7 fps is plenty because the laptop only handles the newest frame.
-      let config = StreamConfiguration(videoCodec: .raw, resolution: .medium, frameRate: 7)
+      // High is 720x1280: medium (504x896) left resistor bands too blurry to read. 7 fps is plenty because the
+      // laptop only handles the newest frame.
+      let config = StreamConfiguration(videoCodec: .raw, resolution: .high, frameRate: 7)
       guard let camera = try session.addCamera(config: config) else {
         status = "Camera would not attach"
         return
@@ -152,6 +156,8 @@ final class GlassesController: ObservableObject {
         for await event in events {
           print("Glasses input: \(event)")
           guard let self, case .capture(.shortPress, _, _) = event else { continue }
+          // While the tutor listens, a press means "step done"; otherwise it speaks descriptions.
+          if self.onCapture?() == true { continue }
           if self.speech.isSpeaking {
             self.speech.stopSpeaking(at: .immediate)
           } else {
@@ -166,6 +172,7 @@ final class GlassesController: ObservableObject {
 
   func stop() {
     speech.stopSpeaking(at: .immediate)
+    // Cancel the event task before removing Inputs, as the DAT docs require.
     inputsTask?.cancel()
     inputsTask = nil
     try? session?.removeInputs()

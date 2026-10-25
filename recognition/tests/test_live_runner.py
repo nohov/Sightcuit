@@ -464,3 +464,20 @@ class RelayServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SaveFramesTests(unittest.TestCase):
+    """Capture mode writes throttled JPEGs; no model runs."""
+
+    def test_saves_at_most_one_frame_per_interval(self):
+        frames = [np.zeros((4, 6, 3), np.uint8)] * 5
+        with tempfile.TemporaryDirectory() as tmp:
+            runner.save_frames(frames, Path(tmp) / "shots", interval=3600)
+            self.assertEqual(len(list((Path(tmp) / "shots").glob("*_0000.jpg"))), 1)
+            self.assertEqual(len(list((Path(tmp) / "shots").iterdir())), 1)
+
+    def test_saves_every_frame_without_throttle(self):
+        frames = [np.zeros((4, 6, 3), np.uint8)] * 3
+        with tempfile.TemporaryDirectory() as tmp:
+            runner.save_frames(frames, Path(tmp), interval=0)
+            self.assertEqual(len(list(Path(tmp).glob("*.jpg"))), 3)

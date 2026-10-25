@@ -707,6 +707,24 @@ def show_relay_frames(shown: dict[str, Any], running: Callable[[], bool]) -> Non
     cv2.destroyAllWindows()
 
 
+def save_frames(frames: Iterable[Any], directory: Path, interval: float = 1.0) -> None:
+    """Capture mode: write at most one frame per `interval` seconds as JPEG; nothing runs or is uploaded.
+
+    Files are named `<session start>_<n>.jpg` so training and test sets can be split by session.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    session = time.strftime("%Y%m%d-%H%M%S")
+    saved, last = 0, -math.inf
+    for frame in frames:
+        if time.monotonic() - last < interval:
+            continue
+        path = directory / f"{session}_{saved:04d}.jpg"
+        if not cv2.imwrite(str(path), frame):
+            raise OSError(f"could not write {path}")
+        saved, last = saved + 1, time.monotonic()
+        print(f"saved {path}", flush=True)
+
+
 def serve_relay(
     host: str, port: int, token: str, detect: Callable[[Iterable[Any], Callable[..., bool]], None],
     display: bool = False, narrator: Narrator | None = None,
@@ -762,7 +780,9 @@ def serve_relay(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("output", type=Path, help="per-frame JSONL output (appended)")
+    parser.add_argument("output", type=Path, nargs="?", help="per-frame JSONL output (appended)")
+    parser.add_argument("--save-frames", type=Path, metavar="DIR",
+                        help="with --listen: only save one relayed frame per second to DIR; no detection or upload")
     parser.add_argument("--weights", type=Path, default=HERE.parent / "training/weights/scavscrap_v2_best.pt",
                         help="existing local YOLO weights")
     parser.add_argument("--allow-upload", action="store_true",
@@ -790,15 +810,28 @@ def main() -> None:
     parser.add_argument("--tts-model", default=DEFAULT_TTS_MODEL, help="ElevenLabs text-to-speech model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
-    if not args.allow_upload:
-        parser.error("--allow-upload is required: camera frames with new tracks are sent to Google")
-    if not os.environ.get("GEMINI_API_KEY"):
-        parser.error("GEMINI_API_KEY must be set in the environment")
+    if args.save_frames and not args.listen:
+        parser.error("--save-frames needs --listen")
+    if not args.save_frames:
+        if args.output is None:
+            parser.error("output is required")
+        if not args.allow_upload:
+            parser.error("--allow-upload is required: camera frames with new tracks are sent to Google")
+        if not os.environ.get("GEMINI_API_KEY"):
+            parser.error("GEMINI_API_KEY must be set in the environment")
     # A fixed token keeps the phone app and dashboard connected across relay restarts.
     # Hex, not urlsafe: Terminal's double-click selection stops at "-", truncating pasted tokens.
     token = os.environ.get("SCAVSCRAP_RELAY_TOKEN") or secrets.token_hex(16)
     if not re.fullmatch(r"[0-9a-f]{32,}", token):
         parser.error("SCAVSCRAP_RELAY_TOKEN must be at least 32 lowercase hex characters")
+    if args.save_frames:
+        host, _, port = args.listen.rpartition(":")
+        try:
+            serve_relay(host, int(port), token, lambda frames, _keep: save_frames(frames, args.save_frames),
+                        display=not args.no_display)
+        except KeyboardInterrupt:
+            pass
+        return
 
     config = load_config(args.config)
     proposal_confidence = (config["thresholds"]["confidence"] if args.proposal_confidence is None

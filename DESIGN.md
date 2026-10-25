@@ -207,13 +207,15 @@ for identity details such as color, value, and connector type.
 
 1. Baseline: run the existing YOLO-World proposals and Gemini labels on about
    20 permitted glasses photos of the parts and record per-class results.
-2. Capture: add frame saving to the relay (`live_runner.py --save-frames DIR`,
-   not yet built) and collect about 150 glasses photos over several sessions:
-   laid out, held in the right hand, partly occluded, partly assembled, and
-   under varied light and angles.
-3. Hold out: the evaluation owner picks whole sessions for the frozen test set
-   before training. Split by session, never by frame; adjacent frames are
-   near-duplicates.
+2. Capture training photos with a phone, held at eye level and pointed down
+   at the table as the wearer's head would be, 1× lens, no portrait mode.
+   Collect about 150 over several sessions: laid out, held in the right hand,
+   partly occluded, partly assembled, and under varied light and surfaces.
+3. Test on glasses frames only: save 20–30 relayed frames with
+   `live_runner.py --listen ... --save-frames DIR` (capture only, no detection
+   or upload). Phone photos are sharper and differently framed, so a phone-only
+   test set would overstate live performance. The evaluation owner freezes
+   these before training.
 4. Label: one box per physical piece, using the catalog classifications
    `development_board`, `breadboard`, `led`, `resistor`, `wire`, `cable`.
    Each jumper wire gets its own box.
@@ -287,6 +289,29 @@ change state. Deduplicate events and reject stale step-context commands so
 partial transcripts, retries, and repeated delivery cannot skip steps. Hearing
 “next” in the assistant's own speech must not advance the tutorial. Bind visual
 answers to the frame used; ignore obsolete answers after the query changes.
+
+## Circuit tutor (separate track)
+
+A voice-guided breadboard tutor reuses the glasses relay. Cost is the design
+constraint:
+- Frames stream to the laptop for free. A cloud model sees one frame only when
+  the user asks a question or presses the capture button.
+- Speech in and out is on-device on the iPhone.
+- `recognition/tutor_config.json` freezes a cheap tier (Gemini 3.5 Flash-Lite)
+  and a stronger tier (Gemini 3.8 Flash) that runs only when the cheap answer is
+  uncertain or invalid. OpenAI models are supported in
+  the same slots.
+
+The glasses camera is too blurry to read resistor bands, so the user reads them
+aloud and `recognition/resistor.py` turns them into ohms, trying both reading
+directions; no model reads bands or does the arithmetic. A value outside the
+BOM, or an invalid code, is spoken as such and never guessed. Gemini 3.8 Live and
+OpenAI Realtime, which stream continuously, cost far more per hour (see the
+plan's price table) and are left as an opt-in later.
+
+A trained YOLO for circuit parts is gated on owner approval to train and on a
+labelled dataset. No tutor accuracy is claimed until an owner-collected resistor
+photo set is scored.
 
 ## Ray-Ban input integration
 

@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0.0",
+  "note": "Tier 1 answers every model question; tier 2 runs only when tier 1 is uncertain or its resistor reading is invalid or not in the project BOM. Replace tier 2 with the winner of the resistor eval.",
+  "tiers": [
+    {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+    {"provider": "gemini", "model": "gemini-3.8-flash"}
+  ],
+  "sources": [
+    "https://ai.google.dev/gemini-api/docs/pricing",
+    "https://developers.openai.com/api/docs/pricing"
+  ]
+}
