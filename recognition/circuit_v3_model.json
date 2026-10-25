@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "model_identifier": "Circuit v3 fine-tuned YOLO11n (training/weights/circuit_v3_best.pt, mAP50 0.798, 6 classes, human-labeled)",
+  "weights_filename": "circuit_v3_best.pt",
+  "task": "object_detection",
+  "dataset": "training/datasets/circuit (893 images, 6 classes, resistor+red_led+switch human-annotated)",
+  "open_vocabulary": false,
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.5
+  },
+  "expected_builtin_classes": [
+    "board",
+    "blue_wire",
+    "red_led",
+    "resistor",
+    "switch",
+    "wire"
+  ],
+  "raw_to_project_mapping": {
+    "board": "board",
+    "blue_wire": "blue_wire",
+    "red_led": "red_led",
+    "resistor": "resistor",
+    "switch": "switch",
+    "wire": "wire"
+  },
+  "target_support": {
+    "board": {"status": "supported_exact", "raw_class_names": ["board"], "reason": "Arduino UNO and breadboard."},
+    "blue_wire": {"status": "supported_exact", "raw_class_names": ["blue_wire"], "reason": "USB/blue cable."},
+    "red_led": {"status": "supported_exact", "raw_class_names": ["red_led"], "reason": "Human-annotated. mAP50 0.805."},
+    "resistor": {"status": "supported_exact", "raw_class_names": ["resistor"], "reason": "Human-annotated. mAP50 0.804."},
+    "switch": {"status": "supported_exact", "raw_class_names": ["switch"], "reason": "Human-annotated. mAP50 0.739."},
+    "wire": {"status": "supported_exact", "raw_class_names": ["wire"], "reason": "DINO-labeled jumper wires. mAP50 0.698. v4 will have human labels."}
+  },
+  "sources": ["training/HANDOFF.md"]
+}
