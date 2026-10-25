@@ -101,11 +101,18 @@ is the frame path; `/frame` returns no boxes.
 
 ```sh
 set -a; . ./.env; set +a
-.venv/bin/python -m recognition.tutor_runner evaluation/tutor_log.jsonl \
-  --project projects/led_resistor.json --allow-upload
+.venv/bin/python -m recognition.tutor_runner evaluation/tutor_log.jsonl --allow-upload
 ```
 
-Enter the printed token, start streaming, then tap "Start listening".
+It starts with no build chosen. Add `--project projects/led_resistor.json` to
+start on the LED tutorial instead. It uses `SCAVSCRAP_RELAY_TOKEN` from `.env`,
+the same token as `live_runner`, so the app keeps its saved token. Start
+streaming, then tap "Start listening".
+
+- **Session:** "tutor, what is this?" remembers each part it names. "tutor,
+  what can I make with these?" suggests builds from them, and "tutor, let's make
+  the …" lists the parts still missing. Say "yes" to start its steps or "no" to
+  back out. "tutor, new session" forgets the parts.
 
 - **Resistors:** say "tutor, which resistor is this?" and it asks for the band
   colors; then say "tutor, red red brown gold". The laptop decodes them, with no

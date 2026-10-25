@@ -122,7 +122,8 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     switch outcome {
     case .success(let reply):
       error = nil
-      step = "Step \(reply.step_index + 1) of \(reply.step_count)" + (reply.project.map { " · \($0)" } ?? "")
+      step = reply.step_count == 0 ? "No build chosen"
+        : "Step \(reply.step_index + 1) of \(reply.step_count)" + (reply.project.map { " · \($0)" } ?? "")
       speak(reply.model == nil ? reply.say : "The model says: \(reply.say)")
     case .failure(let failure):
       error = failure.localizedDescription

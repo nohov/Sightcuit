@@ -309,6 +309,20 @@ BOM, or an invalid code, is spoken as such and never guessed. Gemini 3.8 Live an
 OpenAI Realtime, which stream continuously, cost far more per hour (see the
 plan's price table) and are left as an opt-in later.
 
+A session lives in the tutor process's memory and ends when the process
+stops; "new session" or "start over" resets it. Each "what is this?" answer
+names the part (`component`), and spoken resistor bands add their value.
+"What can I make?" sends that parts list with the frame for build ideas. "I
+want to make X" (or picking a suggested idea) asks for a plan
+(`prompt-plan-v3.txt`: parts with values, missing parts, steps; 9 V or less,
+no mains, battery type and terminals named, a resistor unless a lone coin
+cell; with a microcontroller, exact pins and the Arduino sketch, saved on
+"yes" under `sketches/` next to the log, never run). The tutor lists the parts still missing and switches to the generated
+steps only on "yes"; "no" keeps the current build and step.
+Generated steps are unverified model output, not checked circuits.
+Without `--project` the tutor starts with no build chosen; the LED project
+loads only when passed.
+
 A trained YOLO for circuit parts is gated on owner approval to train and on a
 labelled dataset. No tutor accuracy is claimed until an owner-collected resistor
 photo set is scored.
