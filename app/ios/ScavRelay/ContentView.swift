@@ -5,6 +5,7 @@ let projectClasses: Set<String> = ["laptop", "phone", "headphones", "smartwatch"
 
 struct ContentView: View {
   @ObservedObject var glasses: GlassesController
+  @StateObject private var voice = Voice()
   @AppStorage("relayHost") private var host = ""
   @State private var token = Keychain.read() ?? ""
 
@@ -38,8 +39,32 @@ struct ContentView: View {
             Button("Stop", role: .destructive) { glasses.stop() }
           }
         }
+        // Needs `recognition.tutor_runner` on the laptop instead of live_runner.
+        Section("Circuit tutor") {
+          if !voice.step.isEmpty { LabeledContent("Progress", value: voice.step) }
+          if voice.listening {
+            Text(voice.heard.isEmpty ? "Say \"\(Voice.wakeWord), …\"; press capture when a step is done" : voice.heard)
+              .font(.footnote)
+            Button("Stop listening", role: .destructive) { voice.stop() }
+          } else {
+            Button("Start listening") { Task { await voice.start(relay: glasses.relay) } }
+              .disabled(glasses.streamState == "stopped")
+          }
+          if !voice.said.isEmpty { Text(voice.said).font(.footnote).foregroundStyle(.secondary) }
+        }
       }
-      .frame(height: 470)
+      .frame(height: 620)
+      .onAppear {
+        glasses.onCapture = { [voice, glasses] in
+          guard voice.listening else { return false }
+          voice.send("done", relay: glasses.relay)
+          return true
+        }
+      }
+
+      if let voiceError = voice.error {
+        Banner(text: voiceError)
+      }
 
       if !glasses.status.isEmpty {
         Banner(text: glasses.status)
