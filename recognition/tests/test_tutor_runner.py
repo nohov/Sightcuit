@@ -11,13 +11,13 @@ from recognition import tutor_runner as runner
 
 
 PROJECT = runner.load_project(runner.HERE.parent / "projects" / "led_resistor.json")
-PROMPT = (runner.HERE / "prompt-tutor-v1.txt").read_text(encoding="utf-8")
+PROMPT = (runner.HERE / "prompt-tutor-v3.txt").read_text(encoding="utf-8")
 TIERS = [{"provider": "gemini", "model": "cheap"}, {"provider": "openai", "model": "strong"}]
 JPEG = b"fake-jpeg"
 
 
-def reply(answer="ok", bands=None, step_done=None, uncertain=False):
-    return {"answer": answer, "resistor_bands": bands, "step_done": step_done, "uncertain": uncertain}
+def reply(answer="ok", step_done=None, uncertain=False):
+    return {"answer": answer, "step_done": step_done, "uncertain": uncertain}
 
 
 class FakeProvider:
@@ -52,32 +52,44 @@ class CascadeTests(unittest.TestCase):
         self.assertIn("Step 1 of 5", t.handle("go back", JPEG)[0])
         self.assertEqual(fakes["gemini"].calls + fakes["openai"].calls, [])
 
-    def test_bom_resistor_answered_by_cheap_tier_from_code_not_model(self):
-        t, fakes = tutor([reply("It is 9000 ohms", ["red", "red", "brown", "gold"])])
+    def test_resistor_question_asks_for_bands_without_model_call(self):
+        t, fakes = tutor()
         say, fields = t.handle("which resistor is this", JPEG)
+        self.assertEqual((say, fields["command"]), (runner.ASK_BANDS, "ask_bands"))
+        self.assertEqual(fakes["gemini"].calls, [])
+
+    def test_spoken_bands_decoded_by_code_and_matched_to_bom(self):
+        t, fakes = tutor()
+        say, fields = t.handle("red red brown gold", None)
         self.assertIn("220 ohms", say)
-        self.assertNotIn("9000", say)
-        self.assertEqual(fields["attempts"][0]["bom_match"], "R1")
-        self.assertEqual(fakes["openai"].calls, [])
-        self.assertIn("which resistor is this", fakes["gemini"].calls[0][0]["contents"][0]["parts"][1]["text"])
+        self.assertIn("R1", say)
+        self.assertEqual(fields["bands"], ["red", "red", "brown", "gold"])
+        self.assertIn("220 ohms", t.handle("Gold, brown, red, red.", None)[0])
+        self.assertEqual(fakes["gemini"].calls, [])
 
-    def test_reversed_bands_still_match(self):
-        t, _ = tutor([reply(bands=["gold", "brown", "red", "red"])])
-        self.assertIn("220 ohms", t.handle("what is this", JPEG)[0])
-
-    def test_value_not_in_bom_escalates_then_reports_honestly(self):
-        bands = ["brown", "black", "orange", "gold"]
-        t, fakes = tutor([reply(bands=bands)], [reply(bands=bands)])
-        say, fields = t.handle("what resistor", JPEG)
-        self.assertEqual([a["tier"] for a in fields["attempts"]], [1, 2])
+    def test_spoken_bands_not_in_bom_report_both_directions(self):
+        t, _ = tutor()
+        say, _ = t.handle("brown black orange brown", None)
         self.assertIn("10 kilohms", say)
+        self.assertIn("other end", say)
         self.assertIn("not in this project", say)
         self.assertIn("220 ohms for R1", say)
-        self.assertEqual(fakes["openai"].calls[0][1], "strong")
+
+    def test_spoken_invalid_bands_ask_again(self):
+        t, _ = tutor()
+        say, _ = t.handle("black red brown", None)
+        self.assertIn("colors are wrong", say)
+        self.assertIn("colors are wrong", t.handle("red red purple gold", None)[0])
+        self.assertIn("Tell me its band colors", say)
+
+    def test_what_is_this_goes_to_model(self):
+        t, fakes = tutor([reply("That's a resistor. Read me its band colors.")])
+        self.assertIn("band colors", t.handle("what is this", JPEG)[0])
+        self.assertEqual(len(fakes["gemini"].calls), 1)
 
     def test_uncertain_everywhere_never_guesses(self):
-        t, _ = tutor([reply(uncertain=True)], [reply("maybe 220", ["red"], uncertain=True)])
-        say, _ = t.handle("what resistor", JPEG)
+        t, _ = tutor([reply(uncertain=True)], [reply("maybe 220", uncertain=True)])
+        say, _ = t.handle("what part is this", JPEG)
         self.assertEqual(say, runner.UNREADABLE)
 
     def test_tier_error_escalates(self):
@@ -142,6 +154,8 @@ class TutorServerTests(unittest.TestCase):
         status, body = self.post("/ask", json.dumps({"text": "what is this"}).encode())
         self.assertEqual(status, 200)
         self.assertEqual(body["say"], "That is a breadboard.")
+        self.assertEqual(body["model"], self.records[0]["attempts"][-1]["model"])
+        self.assertIsNone(self.post("/ask", json.dumps({"text": "next"}).encode())[1]["model"])
         self.assertEqual(self.records[0]["question"], "what is this")
         self.assertEqual(self.records[0]["image_size_hw_pixels"], [20, 30])
 

@@ -38,11 +38,14 @@ class DecodeBandsTest(unittest.TestCase):
         # Both directions valid: brown black red red (1 kΩ ±2%) and red red black brown (220 Ω ±1%).
         self.assertEqual(len(readings(["brown", "black", "red", "red"])), 2)
         self.assertEqual(readings(["pink", "pink", "pink", "pink"]), [])
+        # A violet multiplier is valid IEC but means a misread band here.
+        self.assertEqual(readings(["red", "red", "violet", "gold"]), [])
 
     def test_spoken(self):
         self.assertEqual(spoken_ohms(220), "220 ohms")
         self.assertEqual(spoken_ohms(4700), "4.7 kilohms")
-        self.assertEqual(spoken_ohms(1_000_000), "1 megohms")
+        self.assertEqual(spoken_ohms(1_000_000), "1 megohm")
+        self.assertEqual(spoken_ohms(1000), "1 kilohm")
 
 
 if __name__ == "__main__":

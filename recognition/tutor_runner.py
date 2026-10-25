@@ -29,7 +29,7 @@ from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
 
 
-PROMPT_VERSION = "tutor-v1"
+PROMPT_VERSION = "tutor-v3"
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "tutor_config.json"
 OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
@@ -41,21 +41,19 @@ GEMINI_SCHEMA = {
     "type": "OBJECT",
     "properties": {
         "answer": {"type": "STRING"},
-        "resistor_bands": {"type": "ARRAY", "items": {"type": "STRING", "enum": list(COLORS)}, "nullable": True},
         "step_done": {"type": "BOOLEAN", "nullable": True},
         "uncertain": {"type": "BOOLEAN"},
     },
-    "required": ["answer", "resistor_bands", "step_done", "uncertain"],
+    "required": ["answer", "step_done", "uncertain"],
 }
 OPENAI_SCHEMA = {
     "type": "object",
     "properties": {
         "answer": {"type": "string"},
-        "resistor_bands": {"type": ["array", "null"], "items": {"type": "string", "enum": list(COLORS)}},
         "step_done": {"type": ["boolean", "null"]},
         "uncertain": {"type": "boolean"},
     },
-    "required": ["answer", "resistor_bands", "step_done", "uncertain"],
+    "required": ["answer", "step_done", "uncertain"],
     "additionalProperties": False,
 }
 
@@ -117,13 +115,10 @@ DEFAULT_TRANSPORTS: dict[str, Transport] = {"gemini": gemini_transport, "openai"
 
 
 def parse_reply(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict) or set(raw) != {"answer", "resistor_bands", "step_done", "uncertain"}:
-        raise ValueError("reply must contain exactly answer, resistor_bands, step_done, uncertain")
+    if not isinstance(raw, dict) or set(raw) != {"answer", "step_done", "uncertain"}:
+        raise ValueError("reply must contain exactly answer, step_done, uncertain")
     if not isinstance(raw["answer"], str) or not isinstance(raw["uncertain"], bool):
         raise ValueError("answer must be a string and uncertain a boolean")
-    bands = raw["resistor_bands"]
-    if bands is not None and not (isinstance(bands, list) and all(band in COLORS for band in bands)):
-        raise ValueError(f"invalid resistor_bands {bands!r}")
     if raw["step_done"] is not None and not isinstance(raw["step_done"], bool):
         raise ValueError("step_done must be a boolean or null")
     return raw
@@ -151,6 +146,11 @@ COMMANDS = [
     ("repeat", re.compile(r"\b(repeat|again|what('s| is) the step|start)\b")),
     ("check", re.compile(r"\b(done|finished|check)\b")),
 ]
+RESISTOR_QUESTION = re.compile(r"\b(resistors?|resistance|ohms?)\b")
+# Speech recognition writes either spelling.
+COLOR_WORDS = {**{color: color for color in COLORS}, "gray": "grey", "purple": "violet"}
+ASK_BANDS = ("Tell me its band colors, starting from the end farthest from the gold or silver band. "
+             "For example: red, red, brown, gold.")
 
 
 class Tutor:
@@ -180,10 +180,35 @@ class Tutor:
             return self.advance(-1), {"command": command, "attempts": []}
         if command == "repeat":
             return self.current(), {"command": command, "attempts": []}
+        # The camera is too blurry for bands, so the user reads them and code, not a model, decodes them.
+        # shortcut: needs the colors heard as words ("read" for "red" is missed); add homophones if logs show misses.
+        bands = [COLOR_WORDS[word] for word in re.findall(r"[a-z]+", text.lower()) if word in COLOR_WORDS]
+        if len(bands) >= 3:
+            return self.resistor_value(bands), {"command": "bands", "bands": bands, "attempts": []}
+        checking = command == "check"
+        if not checking and RESISTOR_QUESTION.search(text.lower()):
+            return ASK_BANDS, {"command": "ask_bands", "attempts": []}
         if jpeg is None:
             return "I don't have a camera frame yet.", {"command": command, "attempts": []}
-        say, attempts = self.consult(text, jpeg, checking=command == "check")
+        say, attempts = self.consult(text, jpeg, checking)
         return say, {"command": command, "attempts": attempts}
+
+    def resistor_value(self, bands: list[str]) -> str:
+        """Speak the value of bands the user read aloud, trying both reading directions."""
+        heard = ", ".join(bands)
+        found = readings(bands)
+        if not found:
+            return f"I heard {heard}. Those colors are wrong; no beginner resistor reads that way. " + ASK_BANDS
+        for reading in found:
+            for part in self.resistors:
+                if reading["ohms"] == part["value_ohms"]:
+                    return (f"{heard}. That's {spoken_ohms(reading['ohms'])}, plus or minus "
+                            f"{reading['tolerance_pct']:g} percent. It's {part['ref']} in this project.")
+        needed = ", ".join(f"{spoken_ohms(p['value_ohms'])} for {p['ref']}" for p in self.resistors)
+        say = f"{heard}. That's {spoken_ohms(found[0]['ohms'])}, plus or minus {found[0]['tolerance_pct']:g} percent"
+        if len(found) > 1:
+            say += f", or {spoken_ohms(found[1]['ohms'])} read from the other end"
+        return say + ". That's not in this project." + (f" You need {needed}." if needed else "")
 
     def consult(self, question: str, jpeg: bytes, checking: bool) -> tuple[str, list[dict[str, Any]]]:
         step = self.project["steps"][self.step]
@@ -219,20 +244,6 @@ class Tutor:
         """Return (what to say, whether this answer is good enough to stop escalating)."""
         if reply["uncertain"]:
             return UNREADABLE, False
-        if reply["resistor_bands"]:
-            found = attempt["readings"] = readings(reply["resistor_bands"])
-            if not found:
-                return UNREADABLE, False
-            for reading in found:
-                for part in self.resistors:
-                    if reading["ohms"] == part["value_ohms"]:
-                        attempt["bom_match"] = part["ref"]
-                        return (f"That's {spoken_ohms(reading['ohms'])}, plus or minus "
-                                f"{reading['tolerance_pct']:g} percent. It's {part['ref']} in this project."), True
-            needed = ", ".join(f"{spoken_ohms(p['value_ohms'])} for {p['ref']}" for p in self.resistors)
-            reading = found[0]
-            return (f"That reads as {spoken_ohms(reading['ohms'])}, plus or minus {reading['tolerance_pct']:g} percent, "
-                    f"which is not in this project." + (f" You need {needed}." if needed else "")), False
         if checking:
             if reply["step_done"] is True:
                 return "Looks good. " + self.advance(1), True
@@ -291,8 +302,10 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                        state["image_size"] if fields["attempts"] else None, "step_before": step_before,
                        "step_after": tutor.step, **fields, "say": say,
                        "elapsed_ms": round((time.perf_counter() - started) * 1000, 3)})
+                # The model whose reply produced `say`; null when none answered, so the phone never claims one did.
+                answered = [attempt["model"] for attempt in fields["attempts"] if "reply" in attempt]
                 self.reply(200, {"say": say, "step_index": tutor.step, "step_count": len(tutor.project["steps"]),
-                                 "project": tutor.project.get("title")})
+                                 "project": tutor.project.get("title"), "model": answered[-1] if answered else None})
 
         def log_message(self, format: str, *args: Any) -> None:
             logging.info("tutor %s " + format, self.address_string(), *args)
@@ -320,7 +333,7 @@ def main() -> None:
             parser.error(f"{provider.upper()}_API_KEY must be set in the environment")
 
     project = load_project(args.project)
-    tutor = Tutor(project, tiers, (HERE / "prompt-tutor-v1.txt").read_text(encoding="utf-8"), timeout=args.timeout)
+    tutor = Tutor(project, tiers, (HERE / "prompt-tutor-v3.txt").read_text(encoding="utf-8"), timeout=args.timeout)
     command = start_logging(args.output, args.log)
     state: dict[str, Any] = {"jpeg": None, "image_size": None}
     record_base = {

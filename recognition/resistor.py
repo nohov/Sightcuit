@@ -30,10 +30,16 @@ def decode_bands(colors: list[str]) -> dict[str, float]:
     return {"ohms": ohms, "tolerance_pct": TOLERANCES[tolerance]}
 
 
+# Valid in IEC 60062 but 10 megohms x digits and up; on a beginner's resistor these mean a misread band.
+IMPLAUSIBLE_MULTIPLIERS = ("violet", "grey", "white")
+
+
 def readings(colors: list[str]) -> list[dict[str, float]]:
-    """Valid decodes of the bands as given and reversed; models sometimes read from the wrong end."""
+    """Plausible decodes of the bands as given and reversed; people and models read from the wrong end."""
     found = []
     for order in (colors, colors[::-1]):
+        if len(order) in (4, 5) and order[-2] in IMPLAUSIBLE_MULTIPLIERS:
+            continue
         try:
             reading = decode_bands(list(order))
         except ValueError:
@@ -44,7 +50,7 @@ def readings(colors: list[str]) -> list[dict[str, float]]:
 
 
 def spoken_ohms(ohms: float) -> str:
-    for scale, unit in ((1e6, "megohms"), (1e3, "kilohms")):
-        if ohms >= scale:
-            return f"{ohms / scale:g} {unit}"
-    return f"{ohms:g} ohms"
+    for scale, unit in ((1e6, "megohm"), (1e3, "kilohm"), (1, "ohm")):
+        if ohms >= scale or scale == 1:
+            value = ohms / scale
+            return f"{value:g} {unit}" + ("" if value == 1 else "s")

@@ -7,7 +7,7 @@
     {"ref": "J1", "part": "jumper_wire", "count": 2}
   ],
   "steps": [
-    {"id": "find_r1", "say": "Find the 220 ohm resistor, red red brown gold. Hold it up and ask me if you are unsure.", "check": "The user is holding one resistor whose bands read red, red, brown, gold."},
+    {"id": "find_r1", "say": "Find the 220 ohm resistor, red red brown gold. If you are unsure, read me its band colors.", "check": "The user is holding one resistor."},
     {"id": "place_r1", "say": "Push the resistor into the breadboard so it bridges the center gap.", "check": "One resistor is in the breadboard with its two legs on opposite sides of the center gap."},
     {"id": "place_d1", "say": "Put the LED in. Its long leg goes in the same row as one end of the resistor.", "check": "An LED is in the breadboard and one of its legs shares a row with one resistor leg."},
     {"id": "wire_power", "say": "Run a jumper from the 5 volt rail to the free resistor leg's row, and another from the LED's short leg row to ground.", "check": "One jumper links the positive rail to the resistor's free row and another links the LED's other row to the negative rail."},

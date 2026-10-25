@@ -107,7 +107,10 @@ set -a; . ./.env; set +a
 
 Enter the printed token, start streaming, then tap "Start listening".
 
-- **Ask:** say "tutor, which resistor is this?" with the part in view. Speech is
+- **Resistors:** say "tutor, which resistor is this?" and it asks for the band
+  colors; then say "tutor, red red brown gold". The laptop decodes them, with no
+  model call.
+- **Ask:** say "tutor, what is this?" with the part in view. Speech is
   recognized on the iPhone, and only the words after "tutor" go to the laptop.
   The laptop sends the newest frame to the cheap model tier, and to the stronger
   tier only when the cheap answer is uncertain or its reading is not in the

@@ -21,6 +21,8 @@ struct TutorReply: Decodable {
   let step_index: Int
   let step_count: Int
   let project: String?
+  /// The model that answered; nil when no model call answered (step commands, no frame, model unreachable).
+  let model: String?
 }
 
 struct RelayError: LocalizedError {
@@ -70,7 +72,7 @@ final class RelayClient {
   func send(_ image: UIImage, done: @escaping @MainActor (Result<RelayResult, Error>) -> Void) {
     guard !inFlight else { return }
     guard let endpoint else { return done(.failure(RelayError(errorDescription: "Relay host is not a valid URL"))) }
-    guard let jpeg = image.jpegData(compressionQuality: 0.7) else { return }
+    guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return }
     var request = URLRequest(url: endpoint, timeoutInterval: 10)
     request.httpMethod = "POST"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

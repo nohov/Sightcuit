@@ -96,8 +96,9 @@ final class GlassesController: ObservableObject {
           return
         }
       }
-      // Medium is 504x896; 7 fps is plenty because the laptop only handles the newest frame.
-      let config = StreamConfiguration(videoCodec: .raw, resolution: .medium, frameRate: 7)
+      // High is 720x1280: medium (504x896) left resistor bands too blurry to read. 7 fps is plenty because the
+      // laptop only handles the newest frame.
+      let config = StreamConfiguration(videoCodec: .raw, resolution: .high, frameRate: 7)
       guard let camera = try session.addCamera(config: config) else {
         status = "Camera would not attach"
         return

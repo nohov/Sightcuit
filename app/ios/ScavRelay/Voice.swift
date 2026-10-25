@@ -60,6 +60,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
 
   /// Send a fixed request (the glasses tap meaning "this step is done") without speech recognition.
   func send(_ text: String, relay: RelayClient) {
+    speak("Sent.")
     relay.ask(text) { [weak self] outcome in self?.answered(outcome) }
   }
 
@@ -112,6 +113,8 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     heard = ""
     guard listening else { return }
     guard let question = Self.question(in: text), let relay else { return listen() }
+    // The laptop only answers after the model does, so this confirms the send; the reply confirms the model.
+    speak("Sent.")
     relay.ask(question) { [weak self] outcome in self?.answered(outcome) }
   }
 
@@ -120,7 +123,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     case .success(let reply):
       error = nil
       step = "Step \(reply.step_index + 1) of \(reply.step_count)" + (reply.project.map { " · \($0)" } ?? "")
-      speak(reply.say)
+      speak(reply.model == nil ? reply.say : "The model says: \(reply.say)")
     case .failure(let failure):
       error = failure.localizedDescription
       speak("I couldn't reach the laptop.")
