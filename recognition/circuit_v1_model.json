@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "model_identifier": "Circuit v1 fine-tuned YOLO11n (training/weights/circuit_v1_best.pt, mAP50 0.852, 6 classes)",
+  "weights_filename": "circuit_v1_best.pt",
+  "task": "object_detection",
+  "dataset": "training/datasets/circuit (875 images, 6 classes)",
+  "open_vocabulary": false,
+  "thresholds": {
+    "confidence": 0.25,
+    "iou": 0.5
+  },
+  "expected_builtin_classes": [
+    "board",
+    "blue_wire",
+    "red_led",
+    "resistor",
+    "switch",
+    "wire"
+  ],
+  "raw_to_project_mapping": {
+    "board": "board",
+    "blue_wire": "blue_wire",
+    "red_led": "red_led",
+    "resistor": "resistor",
+    "switch": "switch",
+    "wire": "wire"
+  },
+  "target_support": {
+    "board": {
+      "status": "supported_exact",
+      "raw_class_names": ["board"],
+      "reason": "Trained on Arduino UNO and breadboard photos."
+    },
+    "blue_wire": {
+      "status": "supported_exact",
+      "raw_class_names": ["blue_wire"],
+      "reason": "Trained on USB/blue cable photos, kept separate from jumper wires."
+    },
+    "red_led": {
+      "status": "supported_exact",
+      "raw_class_names": ["red_led"],
+      "reason": "Trained on red LED component photos."
+    },
+    "resistor": {
+      "status": "supported_exact",
+      "raw_class_names": ["resistor"],
+      "reason": "Trained on 330-ohm resistor photos, close and far distances."
+    },
+    "switch": {
+      "status": "supported_exact",
+      "raw_class_names": ["switch"],
+      "reason": "Trained on toggle switch photos. mAP50 0.817 — weakest class, add more data."
+    },
+    "wire": {
+      "status": "supported_exact",
+      "raw_class_names": ["wire"],
+      "reason": "Trained on black/white/yellow jumper wire photos combined into one class."
+    }
+  },
+  "sources": [
+    "training/HANDOFF.md"
+  ]
+}
