@@ -37,7 +37,7 @@ from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
 
 
-PROMPT_VERSION = "tutor-v6"
+PROMPT_VERSION = "tutor-v7"
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "tutor_config.json"
 IDEAS_VERSION, PLAN_VERSION = "ideas-v2", "plan-v4"

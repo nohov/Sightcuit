@@ -14,7 +14,7 @@ from recognition import tutor_runner as runner
 
 
 PROJECT = runner.load_project(runner.HERE.parent / "projects" / "led_resistor.json")
-PROMPT = (runner.HERE / "prompt-tutor-v6.txt").read_text(encoding="utf-8")
+PROMPT = (runner.HERE / "prompt-tutor-v7.txt").read_text(encoding="utf-8")
 TIERS = [{"provider": "gemini", "model": "cheap"}, {"provider": "openai", "model": "strong"}]
 JPEG = b"fake-jpeg"
 
