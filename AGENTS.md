@@ -30,8 +30,12 @@ configuration. The owner-approved exceptions for the bake-off are:
   `recognition/tutor_config.json` (Gemini, and OpenAI if configured) only when
   the user asks a question or presses the glasses capture button, never as a
   continuous stream. Use `GEMINI_API_KEY` / `OPENAI_API_KEY` from the
-  environment only, under the same never-write rule. Speech recognition and
-  speech output run on the iPhone; audio never leaves it. The iOS app may add
+  environment only, under the same never-write rule. Speech recognition runs
+  on the iPhone; microphone audio never leaves it. When `ELEVENLABS_API_KEY`
+  is set in the laptop's environment (same never-write rule), the laptop sends
+  each reply's text, never audio or images, to ElevenLabs text-to-speech and
+  caches the WAV under `cache/tts/`; otherwise the iPhone speaks the reply
+  itself. The iOS app may add
   the experimental `MWDATInputs` module for the capture button. Resistor values
   come from `recognition/resistor.py`, never from a model. Model confidence
   is null. No tutor accuracy is claimed until a recorded resistor eval is scored.

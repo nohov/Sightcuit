@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,6 +15,7 @@ from pathlib import Path
 import platform
 import re
 import secrets
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -25,6 +27,7 @@ import numpy as np
 
 from recognition.gemini_runner import RETRY_STATUSES, Transport, build_payload, gemini_transport, response_text
 from recognition.live_runner import MAX_RELAY_FRAME_BYTES, camera_frames
+from recognition.narrator import DEFAULT_TTS_MODEL, DEFAULT_VOICE, _write, elevenlabs_speak
 from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
 
@@ -403,9 +406,22 @@ class Tutor:
         return reply["answer"], True
 
 
+def cached_speak(text: str, directory: Path, speak: Callable[[str], bytes]) -> bytes:
+    """Voice each distinct reply once; step instructions and fixed prompts repeat across sessions."""
+    path = directory / f"{hashlib.sha256(text.encode('utf-8')).hexdigest()}.wav"
+    if path.exists():
+        return path.read_bytes()
+    audio = speak(text)
+    _write(path, audio)
+    return audio
+
+
 def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state: dict[str, Any],
-                      write: Callable[[dict[str, Any]], None], record_base: dict[str, Any]) -> ThreadingHTTPServer:
+                      write: Callable[[dict[str, Any]], None], record_base: dict[str, Any],
+                      speak: Callable[[str], bytes] | None = None) -> ThreadingHTTPServer:
     """POST /frame with a JPEG keeps the newest frame; POST /ask {"text"} answers one spoken request.
+
+    With speak, the reply carries the spoken WAV; without it, or if speaking fails, the phone uses its own voice.
 
     shortcut: plain HTTP on the LAN behind a bearer token, like the detection relay; add TLS before shared networks.
     """
@@ -456,8 +472,15 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                        "elapsed_ms": round((time.perf_counter() - started) * 1000, 3)})
                 # The model whose reply produced `say`; null when none answered, so the phone never claims one did.
                 answered = [attempt["model"] for attempt in fields["attempts"] if "reply" in attempt]
+                audio = None
+                if speak is not None:
+                    try:
+                        audio = base64.b64encode(speak(say)).decode()
+                    except Exception:
+                        logging.exception("Speech failed; the phone speaks instead")
                 self.reply(200, {"say": say, "step_index": tutor.step, "step_count": len(tutor.project["steps"]),
-                                 "project": tutor.project.get("title"), "model": answered[-1] if answered else None})
+                                 "project": tutor.project.get("title"), "model": answered[-1] if answered else None,
+                                 "audio_wav_base64": audio})
 
         def log_message(self, format: str, *args: Any) -> None:
             logging.info("tutor %s " + format, self.address_string(), *args)
@@ -475,6 +498,8 @@ def main() -> None:
     parser.add_argument("--camera", type=int, help="take frames from a local camera instead of the glasses relay")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--voice-id", default=DEFAULT_VOICE, help="ElevenLabs voice for spoken replies")
+    parser.add_argument("--tts-model", default=DEFAULT_TTS_MODEL, help="ElevenLabs text-to-speech model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     if not args.allow_upload:
@@ -499,6 +524,15 @@ def main() -> None:
         "ideas_prompt_version": IDEAS_VERSION, "plan_prompt_version": PLAN_VERSION, "command": command,
         "hardware": {"system": platform.system(), "machine": platform.machine()},
     }
+    speak = None
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        # Only the reply text goes to ElevenLabs; the question audio stays on the phone.
+        voice_dir = HERE.parent / "cache" / "tts" / f"{args.voice_id}_{args.tts_model}"
+        speak = lambda text: cached_speak(text, voice_dir, lambda t: elevenlabs_speak(t, args.voice_id, args.tts_model))
+        record_base["tts"] = f"elevenlabs:{args.voice_id}/{args.tts_model}"
+    else:
+        record_base["tts"] = None
+        print("Voice: Apple on-device (set ELEVENLABS_API_KEY for ElevenLabs)", file=sys.stderr)
     if args.camera is not None:
         def read_camera() -> None:
             for frame in camera_frames(args.camera):
@@ -514,7 +548,7 @@ def main() -> None:
             destination.flush()
 
         host, _, port = args.listen.rpartition(":")
-        server = make_tutor_server((host, int(port)), token, tutor, state, write, record_base)
+        server = make_tutor_server((host, int(port)), token, tutor, state, write, record_base, speak)
         # Token goes to the terminal only, never the log file.
         print(f"tutor listening on {host}:{server.server_address[1]}; token {token}", flush=True)
         print(tutor.current(), flush=True)

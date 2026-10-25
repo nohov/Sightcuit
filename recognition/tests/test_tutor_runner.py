@@ -1,3 +1,4 @@
+import base64
 import json
 from pathlib import Path
 import tempfile
@@ -292,11 +293,43 @@ class TutorServerTests(unittest.TestCase):
         self.assertEqual(self.records[0]["components"], [])
         self.assertEqual((self.records[0]["project_id"], self.records[0]["pending_plan"]), ("led_resistor", None))
 
+    def test_reply_carries_speech_or_falls_back(self):
+        tutor_, _ = tutor([reply("Hi."), reply("Again.")])
+        spoken = iter([b"RIFFwav", RuntimeError("ElevenLabs down")])
+
+        def speak(text):
+            result = next(spoken)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        server = runner.make_tutor_server(("127.0.0.1", 0), "secret", tutor_, self.state, self.records.append,
+                                          {}, speak=speak)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.server = server
+        self.assertEqual(base64.b64decode(self.post("/ask", b'{"text":"hi"}')[1]["audio_wav_base64"]), b"RIFFwav")
+        status, body = self.post("/ask", b'{"text":"again"}')
+        self.assertEqual((status, body["audio_wav_base64"]), (200, None))
+
     def test_bad_bodies_rejected(self):
         self.assertEqual(self.post("/frame", b"not a jpeg")[0], 400)
         self.assertEqual(self.post("/ask", b"not json")[0], 400)
         self.assertEqual(self.post("/ask", b'{"text": ""}')[0], 400)
         self.assertEqual(self.post("/nope", b"x")[0], 404)
+
+
+class CachedSpeakTests(unittest.TestCase):
+    def test_each_text_is_voiced_once(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "voice"
+            speak = lambda text: calls.append(text) or b"RIFF" + text.encode()
+            first = runner.cached_speak("Looks good.", directory, speak)
+            self.assertEqual(runner.cached_speak("Looks good.", directory, speak), first)
+            self.assertEqual(calls, ["Looks good."])
+            self.assertEqual([p.suffix for p in directory.iterdir()], [".wav"])
 
 
 class ConfigTests(unittest.TestCase):

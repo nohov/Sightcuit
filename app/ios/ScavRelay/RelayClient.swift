@@ -23,6 +23,8 @@ struct TutorReply: Decodable {
   let project: String?
   /// The model that answered; nil when no model call answered (step commands, no frame, model unreachable).
   let model: String?
+  /// ElevenLabs WAV of `say`; nil when the laptop has no ElevenLabs key or speaking failed.
+  let audio_wav_base64: String?
 }
 
 struct RelayError: LocalizedError {

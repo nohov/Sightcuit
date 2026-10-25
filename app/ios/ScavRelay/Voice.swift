@@ -3,7 +3,7 @@ import Speech
 
 /// On-device speech in and out for the circuit tutor; only the recognized question text goes to the laptop.
 @MainActor
-final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
+final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
   @Published var listening = false
   @Published var heard = ""
   @Published var said = ""
@@ -14,6 +14,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
   private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
   private let engine = AVAudioEngine()
   private let synthesizer = AVSpeechSynthesizer()
+  private var player: AVAudioPlayer?
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var task: SFSpeechRecognitionTask?
   private var silence: Task<Void, Never>?
@@ -56,6 +57,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     endUtterance()
     engine.stop()
     synthesizer.stopSpeaking(at: .immediate)
+    player?.stop()
   }
 
   /// Send a fixed request (the glasses tap meaning "this step is done") without speech recognition.
@@ -124,7 +126,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
       error = nil
       step = reply.step_count == 0 ? "No build chosen"
         : "Step \(reply.step_index + 1) of \(reply.step_count)" + (reply.project.map { " · \($0)" } ?? "")
-      speak(reply.say)
+      play(reply.audio_wav_base64, saying: reply.say)
     case .failure(let failure):
       error = failure.localizedDescription
       speak("I couldn't reach the laptop.")
@@ -143,6 +145,22 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     // Not listening while speaking keeps the tutor from hearing itself.
     endUtterance()
     synthesizer.speak(AVSpeechUtterance(string: text))
+  }
+
+  /// The laptop's ElevenLabs audio when it sent some; the on-device voice otherwise.
+  private func play(_ wav: String?, saying text: String) {
+    guard let wav, let data = Data(base64Encoded: wav), let player = try? AVAudioPlayer(data: data) else {
+      return speak(text)
+    }
+    said = text
+    endUtterance()
+    player.delegate = self
+    self.player = player
+    if !player.play() { speak(text) }
+  }
+
+  nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    Task { @MainActor in self.listen() }
   }
 
   nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
