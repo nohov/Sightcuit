@@ -40,7 +40,7 @@ from recognition.runio import start_logging
 PROMPT_VERSION = "tutor-v6"
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "tutor_config.json"
-IDEAS_VERSION, PLAN_VERSION = "ideas-v2", "plan-v3"
+IDEAS_VERSION, PLAN_VERSION = "ideas-v2", "plan-v4"
 IDEAS_PROMPT = (HERE / f"prompt-{IDEAS_VERSION}.txt").read_text(encoding="utf-8")
 PLAN_PROMPT = (HERE / f"prompt-{PLAN_VERSION}.txt").read_text(encoding="utf-8")
 OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
