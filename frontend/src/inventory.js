@@ -6,9 +6,9 @@
 // saves a small snapshot cropped from the glasses video. Nothing is guessed
 // from the lesson step or the detector's free-text name.
 //
-// Projects: a project marks itself complete the first time the lesson reaches
-// its final step and stays complete (with the time) even if the user steps
-// back. It records lesson progress, not a wiring check.
+// Projects: chosen by voice through the tutor and listed once chosen; each
+// marks itself complete when the tutor reports its last step done. A
+// progress record, not a wiring check.
 //
 // Everything survives reloads (localStorage) until removed or reset.
 
@@ -163,43 +163,67 @@ export function useInventory() {
 }
 
 // ---------- projects ----------
+//
+// Projects come from the voice tutor: a project appears once the user chooses
+// it ("what can I make?" → "let's make …" → "yes"), or when the tutor was
+// started with --project. It marks itself complete when the tutor reports the
+// user moved past its last step. Kept in this browser as a history.
 
-const PROJECTS_KEY = "scavscrap.projects.v1";
+const PROJECTS_KEY = "scavscrap.projects.v2";
+const MAX_PROJECTS = 20;
 
 function loadProjects() {
   try {
-    const data = JSON.parse(localStorage.getItem(PROJECTS_KEY) || "{}");
-    return data && typeof data === "object" ? data : {};
+    const list = JSON.parse(localStorage.getItem(PROJECTS_KEY) || "[]");
+    return Array.isArray(list) ? list : [];
   } catch {
-    return {};
+    return [];
   }
 }
 
-function saveProjects(data) {
+function saveProjects(list) {
   try {
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(data));
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(list));
   } catch {
-    // Storage blocked: completion still shows for this visit.
+    // Storage blocked: the list still shows for this visit.
   }
 }
 
-// completed: { [projectId]: completedAt ms }
-export function useProjects(projectId, stepIndex, stepCount) {
-  const [completed, setCompleted] = useState(loadProjects);
+// One entry per project title: { key, title, parts, steps: [say], startedAt, completedAt }
+export function useProjects(session) {
+  const [projects, setProjects] = useState(loadProjects);
 
-  useEffect(() => saveProjects(completed), [completed]);
+  useEffect(() => saveProjects(projects), [projects]);
 
+  const project = session?.project;
+  const finished = Boolean(session?.finished);
+  const signature = project ? JSON.stringify([project.title, project.parts, project.steps]) : null;
   useEffect(() => {
-    if (stepIndex !== stepCount - 1) return;
-    setCompleted((prev) => (prev[projectId] ? prev : { ...prev, [projectId]: Date.now() }));
-  }, [projectId, stepIndex, stepCount]);
-
-  const reset = useCallback((id) => {
-    setCompleted((prev) => {
-      const { [id]: _gone, ...rest } = prev;
-      return rest;
+    if (!project?.title) return;
+    setProjects((prev) => {
+      const index = prev.findIndex((p) => p.key === project.title);
+      const old = index >= 0 ? prev[index] : null;
+      const next = {
+        key: project.title,
+        title: project.title,
+        parts: project.parts || [],
+        steps: (project.steps || []).map((step) => step.say),
+        startedAt: old?.startedAt ?? Date.now(),
+        completedAt: old?.completedAt ?? (finished ? Date.now() : null),
+      };
+      if (old && JSON.stringify(old) === JSON.stringify(next)) return prev;
+      const rest = prev.filter((_, i) => i !== index);
+      return [next, ...rest].slice(0, MAX_PROJECTS);
     });
+  }, [signature, finished]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resetCompletion = useCallback((key) => {
+    setProjects((prev) => prev.map((p) => (p.key === key ? { ...p, completedAt: null } : p)));
   }, []);
 
-  return { completed, reset };
+  const remove = useCallback((key) => {
+    setProjects((prev) => prev.filter((p) => p.key !== key));
+  }, []);
+
+  return { projects, activeKey: project?.title ?? null, resetCompletion, remove };
 }

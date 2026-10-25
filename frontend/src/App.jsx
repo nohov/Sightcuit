@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
-import { BreadboardPanel, LESSON_STEPS, StepsPanel } from "./components/LessonPreview.jsx";
-import Inventory, { LED_PROJECT } from "./components/Inventory.jsx";
+import { BreadboardPanel, StepsPanel } from "./components/LessonPreview.jsx";
+import Inventory from "./components/Inventory.jsx";
+import { useTutorSession } from "./tutorSession.js";
 import { useInventory, useProjects } from "./inventory.js";
 
 const Cog = ({ size = 28, className = "cog", color = "currentColor" }) => (
@@ -272,8 +273,9 @@ export default function App() {
     recordFrame(frame, sizeHW, videoRef.current, detectionLive);
   }, [frame, sizeHW, detectionLive, recordFrame]);
 
-  // The LED project marks itself complete when the lesson reaches its last step.
-  const projects = useProjects(LED_PROJECT.id, stepIndex, LESSON_STEPS.length);
+  // Projects are chosen by voice through the tutor; each completes when the tutor says its last step is done.
+  const tutor = useTutorSession(relay);
+  const projects = useProjects(tutor.session);
 
   const recording = (
     <RecordingPanel
@@ -300,7 +302,7 @@ export default function App() {
           <BreadboardPanel stepIndex={stepIndex} />
         </div>
       </div>
-      <Inventory inventory={inventory} completed={projects.completed} onReset={projects.reset} stepIndex={stepIndex} />
+      <Inventory inventory={inventory} projects={projects} tutor={tutor} />
     </div>
   );
 }

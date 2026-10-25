@@ -99,11 +99,17 @@ The brass **Inventory** tab on the bottom edge opens a drawer with two tabs:
   relay event carries its `component_preview.model_id`; the first sighting
   saves a snapshot cropped from the glasses video. The USB cable has no
   detector class and is never marked.
-- **My Projects**: each project with its steps and parts. A project marks
-  itself complete the first time the lesson reaches its last step: a
-  **Completed** badge appears next to its name, with the time. It stays
-  complete if the user steps back; **Reset completion** clears it. It records
-  lesson progress only and does not verify wiring.
+- **My Projects**: empty until a project is chosen by voice through the
+  tutor ("Tutor, what can I make?" → "let's make …" → "yes"). A plan waiting
+  for the user's yes shows as a dashed card with the parts still needed; the
+  chosen project shows its steps with the tutor's current step highlighted.
+  When the tutor reports its last step done, a **Completed** badge appears
+  next to the name. Earlier projects stay listed below.
+
+  The dashboard polls the tutor's `GET /session?token=` once a second, using
+  the same relay address and token (`recognition/tutor_runner.py` listens
+  where `live_runner` does). While `live_runner` runs instead, the tab says
+  the tutor isn't reachable.
 
 Kept in this browser (`localStorage`).
 
@@ -116,7 +122,8 @@ src/
   components/lesson-preview.css  lesson panel styles
   components/Inventory.jsx   inventory drawer (My Parts, My Projects)
   components/inventory.css   inventory drawer styles
-  inventory.js               part sightings, snapshots, project completion
+  inventory.js               part sightings, snapshots, project history
+  tutorSession.js            polls the voice tutor's /session
   devices.js                 per-label device data (placeholders)
   feed.js                    relay connection (video + detections) and mock feed
   styles.css                 theme tokens and styles

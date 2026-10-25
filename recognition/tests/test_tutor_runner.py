@@ -177,6 +177,25 @@ class SessionTests(unittest.TestCase):
         self.assertIn("last step", t.handle("next", JPEG)[0])
         self.assertNotIn("not in this project", t.handle("brown black orange gold", None)[0])
 
+    def test_session_follows_plan_choice_and_finish(self):
+        t, _ = tutor([plan()])
+        self.assertEqual(t.session()["project"]["title"], "Light an LED from a 5 volt supply")
+        t.handle("I want to make a night light", JPEG)
+        session = t.session()
+        self.assertEqual(session["pending_plan"], {"title": "Night light", "parts": ["red LED", "220 ohm resistor", "photoresistor"],
+                                                   "missing": ["photoresistor"]})
+        t.handle("yes", JPEG)
+        session = t.session()
+        self.assertEqual((session["project"]["title"], session["project"]["parts"], session["step_count"]),
+                         ("Night light", ["red LED", "220 ohm resistor", "photoresistor"], 2))
+        self.assertIsNone(session["pending_plan"])
+        t.handle("next", JPEG)
+        self.assertFalse(t.session()["finished"])
+        t.handle("next", JPEG)
+        self.assertTrue(t.session()["finished"])
+        t.handle("start over", JPEG)
+        self.assertFalse(t.session()["finished"])
+
     def test_confirmed_plan_saves_its_sketch(self):
         with tempfile.TemporaryDirectory() as folder:
             fakes = {"gemini": FakeProvider("gemini", [plan(code="void setup() {}\nvoid loop() {}\n")]),
@@ -241,6 +260,7 @@ class NoProjectTests(unittest.TestCase):
             self.assertEqual(t.handle(text, JPEG)[0], runner.NO_BUILD)
         self.assertEqual(fakes["gemini"].calls, [])
         self.assertTrue(t.handle("red red brown gold", None)[0].endswith("220 ohms, plus or minus 5 percent."))
+        self.assertEqual((t.session()["project"], t.session()["step_count"]), (None, 0))
 
     def test_what_is_this_then_plan_then_reset(self):
         fakes = {"gemini": FakeProvider("gemini", [reply("An LED.", component="LED"), plan()]),
@@ -274,6 +294,29 @@ class TutorServerTests(unittest.TestCase):
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())
+
+    def get(self, path):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.server.server_address[1]}{path}", timeout=5) as response:
+                return response.status, json.loads(response.read()), response.headers
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read()), error.headers
+
+    def test_session_needs_token_and_shows_the_build(self):
+        self.assertEqual(self.get("/session")[0], 401)
+        self.assertEqual(self.get("/session?token=wrong")[0], 401)
+        self.assertEqual(self.get("/nope?token=secret")[0], 404)
+        status, body, headers = self.get("/session?token=secret")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual((body["revision"], body["step_index"], body["finished"], body["pending_plan"]), (0, 0, False, None))
+        self.assertEqual(body["project"]["title"], "Light an LED from a 5 volt supply")
+        self.assertEqual(len(body["project"]["steps"]), body["step_count"])
+        self.assertEqual(set(body["project"]["steps"][0]), {"say"})
+        self.assertEqual(body["project"]["parts"], ["220 ohm resistor", "red LED", "2 jumper wires"])
+        self.post("/ask", json.dumps({"text": "next"}).encode())
+        self.assertEqual(self.get("/session?token=secret")[1]["revision"], 1)
+        self.assertEqual(self.records[-1]["step_after"], 1)
 
     def test_wrong_token_is_rejected(self):
         self.assertEqual(self.post("/ask", b'{"text":"hi"}', token="wrong")[0], 401)

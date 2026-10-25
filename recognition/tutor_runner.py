@@ -20,6 +20,7 @@ import threading
 import time
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 import cv2
@@ -228,6 +229,18 @@ ASK_BANDS = ("Tell me its band colors, starting from the end farthest from the g
              "For example: red, red, brown, gold.")
 
 
+def bom_name(part: dict[str, Any]) -> str:
+    """A spoken-style name for a project BOM row, e.g. "220 ohm resistor" or "2 jumper wires"."""
+    label = part.get("part", "part").replace("_", " ")
+    label = "LED" if label == "led" else label
+    if part.get("value_ohms") is not None:
+        label = f"{part['value_ohms']:g} ohm {label}"
+    if part.get("color"):
+        label = f"{part['color']} {label}"
+    count = part.get("count", 1)
+    return f"{count} {label}s" if count > 1 else label
+
+
 class Tutor:
     def __init__(self, project: dict[str, Any] | None, tiers: list[dict[str, str]], prompt: str,
                  transports: dict[str, Transport] = DEFAULT_TRANSPORTS, timeout: float = 60.0,
@@ -241,8 +254,20 @@ class Tutor:
         """Start a new session: the original project, step 1, no parts seen."""
         # shortcut: the session lives in memory and ends with the process; persist it if sessions must survive restarts.
         self.project, self.step, self.components = self.original, 0, []
+        self.finished = False  # the user moved past the last step of the current build
         self.pending: dict[str, Any] | None = None  # a plan that waits for the user's yes or no
         self.resistors = [part for part in self.project.get("bom", []) if part.get("part") == "resistor"]
+
+    def session(self) -> dict[str, Any]:
+        """What the dashboard shows: the chosen build, its steps, a plan awaiting yes, and parts seen."""
+        project = None
+        if self.project["steps"]:
+            parts = self.project.get("parts") or [bom_name(part) for part in self.project.get("bom", [])]
+            project = {"id": self.project.get("id"), "title": self.project.get("title"), "parts": parts,
+                       "steps": [{"say": step["say"]} for step in self.project["steps"]]}
+        pending = ({key: self.pending[key] for key in ("title", "parts", "missing")} if self.pending else None)
+        return {"project": project, "step_index": self.step, "step_count": len(self.project["steps"]),
+                "finished": self.finished, "pending_plan": pending, "components": list(self.components)}
 
     def remember(self, component: str) -> None:
         if component.strip().lower() not in (seen.lower() for seen in self.components):
@@ -259,6 +284,7 @@ class Tutor:
         if last < 0:
             return NO_BUILD
         if delta > 0 and self.step == last:
+            self.finished = True
             return "That was the last step. The circuit is finished."
         self.step = min(max(self.step + delta, 0), last)
         return self.current()
@@ -275,8 +301,9 @@ class Tutor:
             return f"Okay, not building {title}. {keep}{self.current()}", {"command": "decline", "attempts": []}
         if self.pending and CONFIRM.search(lowered):
             plan, self.pending = self.pending, None
-            self.project = {"id": "generated", "title": plan["title"], "steps": plan["steps"], "bom": []}
-            self.step, self.resistors = 0, []
+            self.project = {"id": "generated", "title": plan["title"], "steps": plan["steps"], "bom": [],
+                            "parts": plan["parts"]}
+            self.step, self.resistors, self.finished = 0, [], False
             return (f"Starting {plan['title']}. {self.save_sketch(plan)}{self.current()}",
                     {"command": "confirm", "attempts": []})
         session = next((name for name, pattern in (("ideas", IDEAS), ("plan", PLAN)) if pattern.search(lowered)), None)
@@ -421,6 +448,9 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                       speak: Callable[[str], bytes] | None = None) -> ThreadingHTTPServer:
     """POST /frame with a JPEG keeps the newest frame; POST /ask {"text"} answers one spoken request.
 
+    GET /session?token= returns Tutor.session() plus a revision for the dashboard (?token= because the
+    browser polls it like the relay's endpoints). It is read-only and costs no model call.
+
     With speak, the reply carries the spoken WAV; without it, or if speaking fails, the phone uses its own voice.
 
     shortcut: plain HTTP on the LAN behind a bearer token, like the detection relay; add TLS before shared networks.
@@ -434,8 +464,20 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
+
+        def do_GET(self) -> None:
+            url = urlsplit(self.path)
+            if url.path != "/session":
+                return self.reply(404, {"error": "not found"})
+            supplied = (parse_qs(url.query).get("token") or [""])[0]
+            if not hmac.compare_digest(f"Bearer {supplied}".encode(), expected):
+                return self.reply(401, {"error": "bad token"})
+            with lock:
+                return self.reply(200, {"revision": state.get("revision", 0), **tutor.session()})
 
         def do_POST(self) -> None:
             if self.path not in ("/frame", "/ask"):
@@ -464,6 +506,7 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                 started = time.perf_counter()
                 step_before = tutor.step
                 say, fields = tutor.handle(text, state["jpeg"])
+                state["revision"] = state.get("revision", 0) + 1
                 write({**record_base, "timestamp": time.time(), "question": text, "image_size_hw_pixels":
                        state["image_size"] if fields["attempts"] else None, "step_before": step_before,
                        "step_after": tutor.step, **fields, "components": list(tutor.components),

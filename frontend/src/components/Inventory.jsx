@@ -1,20 +1,13 @@
 // Inventory drawer: a brass tab at the bottom of the dashboard slides up a
 // panel with two tabs — My Parts (the kit, with glasses snapshots once seen)
-// and My Projects (each project, with a Completed badge next to its name once
-// the lesson has reached its final step).
+// and My Projects (empty until a project is chosen by voice through the tutor;
+// each project gets a Completed badge once the tutor reports its last step done).
 
 import React, { useEffect, useRef, useState } from "react";
 import { KIT } from "../inventory.js";
-import { LESSON_STEPS } from "./LessonPreview.jsx";
 import "./inventory.css";
 
-export const LED_PROJECT = {
-  id: "red-led",
-  title: "Light up a red LED",
-  parts: ["Arduino UNO R3", "Breadboard", "330 Ω resistor", "Red LED", "2 jumper wires", "USB cable"],
-};
-
-const PROJECTS = [LED_PROJECT];
+const HOW_TO_CHOOSE = "Say “Tutor, what can I make?”, then “let's make …”, then “yes”.";
 
 const when = (ms) =>
   new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -89,7 +82,7 @@ function PartCard({ part, seen, onForget }) {
         <div className={`inv-status mono ${seen ? "on" : ""}`}>{status}</div>
         <p className="inv-desc">{part.what}</p>
         <div className="inv-used">
-          Used in <span>{LED_PROJECT.title}</span>
+          Part of the <span>LED starter kit</span>
         </div>
       </div>
       {seen && (
@@ -118,44 +111,53 @@ function PartsTab({ parts, onForget }) {
   );
 }
 
-function ProjectCard({ project, stepIndex, completedAt, onReset }) {
-  const done = Boolean(completedAt);
+function CompletedBadge() {
+  return (
+    <span className="inv-complete" role="status">
+      <span aria-hidden="true">✓</span> Completed
+    </span>
+  );
+}
+
+function ActiveProject({ project, session, onReset }) {
+  const done = Boolean(project.completedAt);
+  const live = session?.project?.title === project.title;
+  const stepIndex = live ? session.step_index : done ? project.steps.length : 0;
   return (
     <article className={`inv-project ${done ? "done" : ""}`}>
       <div className="inv-project-head">
         <div className="inv-project-title">
           {project.title}
-          {done && (
-            <span className="inv-complete" role="status">
-              <span aria-hidden="true">✓</span> Completed
-            </span>
-          )}
+          {done && <CompletedBadge />}
         </div>
         <div className="mono muted">
-          {done ? `Completed ${when(completedAt)}` : `Step ${stepIndex + 1} of ${LESSON_STEPS.length}`}
+          {done ? `Completed ${when(project.completedAt)}` : `Step ${stepIndex + 1} of ${project.steps.length}`}
+          {live && !done && " · building now"}
         </div>
       </div>
 
-      <ol className="inv-steps">
-        {LESSON_STEPS.map((s, i) => {
+      <ol className="inv-steps tutor">
+        {project.steps.map((say, i) => {
           const state = done || i < stepIndex ? "done" : i === stepIndex ? "now" : "";
           return (
-            <li key={s.title} className={state}>
+            <li key={i} className={state}>
               <span className="inv-step-dot mono">{state === "done" ? "✓" : i + 1}</span>
-              <span>{s.title}</span>
+              <span>{say}</span>
             </li>
           );
         })}
       </ol>
 
-      <div className="inv-parts-used">
-        {project.parts.map((p) => (
-          <span key={p}>{p}</span>
-        ))}
-      </div>
+      {project.parts.length > 0 && (
+        <div className="inv-parts-used">
+          {project.parts.map((p) => (
+            <span key={p}>{p}</span>
+          ))}
+        </div>
+      )}
 
       {done && (
-        <button type="button" className="inv-reset" onClick={() => onReset(project.id)}>
+        <button type="button" className="inv-reset" onClick={() => onReset(project.key)}>
           Reset completion
         </button>
       )}
@@ -163,13 +165,88 @@ function ProjectCard({ project, stepIndex, completedAt, onReset }) {
   );
 }
 
-export default function Inventory({ inventory, completed, onReset, stepIndex }) {
+function PendingPlan({ plan }) {
+  return (
+    <article className="inv-project pending">
+      <div className="inv-project-head">
+        <div className="inv-project-title">
+          {plan.title}
+          <span className="inv-waiting">Waiting for your yes</span>
+        </div>
+        <div className="mono muted">Say “yes” to start it, or “no” to keep the current build.</div>
+      </div>
+      {plan.parts.length > 0 && (
+        <div className="inv-parts-used">
+          {plan.parts.map((p) => (
+            <span key={p} className={plan.missing.includes(p) ? "missing" : ""}>
+              {p}
+              {plan.missing.includes(p) && " · need"}
+            </span>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function PastProject({ project, onRemove }) {
+  return (
+    <li className="inv-past">
+      <span className="inv-past-title">{project.title}</span>
+      {project.completedAt ? <CompletedBadge /> : <span className="inv-chip">Not finished</span>}
+      <span className="mono muted">{when(project.completedAt || project.startedAt)}</span>
+      <button type="button" className="inv-past-remove" aria-label={`Remove ${project.title}`} onClick={() => onRemove(project.key)}>
+        ×
+      </button>
+    </li>
+  );
+}
+
+const TUTOR_STATUS = {
+  off: "Connect the glasses relay (Relay settings on the video panel) to see the tutor's projects.",
+  connecting: "Connecting to the tutor…",
+  unavailable: "Tutor not reachable — start recognition/tutor_runner.py on the relay address.",
+};
+
+function ProjectsTab({ tutor, projects }) {
+  const session = tutor.session;
+  const active = projects.projects.find((p) => p.key === projects.activeKey);
+  const past = projects.projects.filter((p) => p.key !== projects.activeKey);
+  return (
+    <>
+      {tutor.status !== "live" && <p className="inv-tutor-status mono">{TUTOR_STATUS[tutor.status]}</p>}
+      {session?.pending_plan && <PendingPlan plan={session.pending_plan} />}
+      {active ? (
+        <ActiveProject project={active} session={session} onReset={projects.resetCompletion} />
+      ) : (
+        !session?.pending_plan && (
+          <div className="inv-choose">
+            <div className="inv-choose-title">No project chosen yet</div>
+            <p>{HOW_TO_CHOOSE} It will show up here.</p>
+          </div>
+        )
+      )}
+      {past.length > 0 && (
+        <>
+          <h3 className="inv-section">Earlier projects</h3>
+          <ul className="inv-past-list">
+            {past.map((p) => (
+              <PastProject key={p.key} project={p} onRemove={projects.remove} />
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+export default function Inventory({ inventory, projects, tutor }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("parts");
   const closeRef = useRef(null);
   const tabRef = useRef(null);
   const seenCount = KIT.filter((p) => inventory.parts[p.id]).length;
-  const doneCount = PROJECTS.filter((p) => completed[p.id]).length;
+  const doneCount = projects.projects.filter((p) => p.completedAt).length;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -213,7 +290,7 @@ export default function Inventory({ inventory, completed, onReset, stepIndex }) 
           <div>
             <h2>Inventory</h2>
             <div className="mono muted">
-              {seenCount}/{KIT.length} parts spotted · {doneCount}/{PROJECTS.length} projects completed
+              {seenCount}/{KIT.length} parts spotted · {doneCount} project{doneCount === 1 ? "" : "s"} completed
             </div>
           </div>
           <div className="inv-tabs" role="tablist" aria-label="Inventory sections">
@@ -236,12 +313,7 @@ export default function Inventory({ inventory, completed, onReset, stepIndex }) 
           {tab === "parts" ? (
             <PartsTab parts={inventory.parts} onForget={inventory.forgetPart} />
           ) : (
-            <>
-              {PROJECTS.map((p) => (
-                <ProjectCard key={p.id} project={p} stepIndex={stepIndex} completedAt={completed[p.id]} onReset={onReset} />
-              ))}
-              <p className="inv-note">A project marks itself complete when you reach its last step.</p>
-            </>
+            <ProjectsTab tutor={tutor} projects={projects} />
           )}
         </div>
       </section>
