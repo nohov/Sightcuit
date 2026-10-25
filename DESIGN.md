@@ -1,4 +1,4 @@
-# ScavScrap — guided circuit building, v0.11
+# ScavScrap — guided circuit building, v0.12
 
 ## Purpose and audience
 
@@ -26,8 +26,9 @@ component recognition, hand association, or circuit verification performance.
 - The initial vision task checks whether the visible parts match the planned
   inventory. The user can ask what an object is, including what is in their
   right hand.
-- ElevenLabs is intended for voice; the division between speech output and
-  conversation handling remains open.
+- Spoken output already works through the finished iOS relay (see “Built so
+  far”). ElevenLabs is intended for the lesson voice; the division between
+  speech output and conversation handling remains open.
 - Assembly is breadboard-only, with no coding, soldering, or additional sensors.
   Multimeters are deferred. The Arduino supplies power through its 5V/GND pins.
 - Voice commands are the primary way to advance steps. Progression is
@@ -36,7 +37,7 @@ component recognition, hand association, or circuit verification performance.
 
 ## First demo: USB-powered red LED
 
-Owner-specified inventory (availability is not yet physically verified):
+Owner-specified inventory, physically confirmed by the team on 2026-10-24:
 
 | Component | Quantity | Inventory source |
 | --- | --- | --- |
@@ -61,7 +62,8 @@ red LED cathode (−) → Arduino GND
 
 Use the two jumper wires for the Arduino-to-breadboard 5V and GND connections;
 the resistor and LED share the appropriate breadboard nodes. Exact hole
-coordinates and the diagram depend on the actual breadboard and remain pending.
+coordinates and the breadboard diagram are drawn for the confirmed breadboard
+(owner: Noah, see “Team and workstreams”).
 Assemble with USB disconnected, then follow the finalized connection review and
 power-up procedure. No digital I/O pin, sketch upload, or software-controlled
 switch is part of this circuit.
@@ -96,8 +98,9 @@ Citing a working project is not itself validation of the LLM's adaptation.
 Sources must be checked for the actual selected parts and supply; the project
 review process and responsible reviewer are still undecided. Do not describe
 an unreviewed generated plan as reviewed. The owner has specified the circuit
-and nominal resistor value; actual LED specifications, resistor rating, board
-layout, and physical part availability still need confirmation.
+and nominal resistor value, and the team has confirmed the inventory and steps.
+Record the confirmed LED specifications, resistor rating, and USB cable in the
+project package.
 
 ## Build experience
 
@@ -115,19 +118,55 @@ layout, and physical part availability still need confirmation.
 6. Follow the finalized project's power and test procedure, then record the
    observed result and any assistance needed.
 
+### Highlighting the needed part
+
+Assume the user cannot recognize any part. For each step, the glasses view on
+the PC highlights where the required part is, so they can find it by position
+rather than by name. The demo does not use a glasses display, so the highlight
+lives on the PC, and speech points there (“the part is highlighted on screen, on the
+left side of the table”).
+
+- Boxes must follow the part from frame to frame, so a fast local detector
+  places them; Gemini confirms identity asynchronously. Gemini latency alone
+  cannot keep a highlight on a moving view.
+- Highlight only parts the current frame supports. Never highlight an object
+  because it is the last unmatched item.
+- When several items share the required category (the two jumper wires),
+  highlight all of them and say either one will do; do not invent a distinction.
+- If the required part is not detected, say so and ask the user to look across
+  the table, rather than showing a stale or guessed box.
+- Highlight the required part even while the user holds something else; the
+  held-object panel stays separate. When the user picks up the right part,
+  confirm it from the held-object answer.
+
 The final success criterion is a novice completing this circuit and observing
 the external red LED remain lit while powered. Record any assistance required.
 Turning off by removing USB is the expected shutdown, not a separate switching
 feature. The earlier ambiguous “turns off” criterion is superseded.
 
-## PC interface and current repository
+## Built so far
 
-The existing `frontend/src/App.jsx` provides a glasses recording panel with
-boxes, a rotating device model, measurements, device particulars, and a metal
-assay. Its current focus is the most confident labelled track, not a detected
-right-hand object. These are existing implementation facts, not new features.
+Repository scan on 2026-10-24 (`main` at `e4604acf`). Everything here was built
+for the five-device scan; it is reusable plumbing, not component support.
 
-Adapt that dashboard concept into a step-focused workspace:
+| Piece | State | Reuse for the LED build |
+| --- | --- | --- |
+| iOS relay (`app/ios/ScavRelay/`) | **Finished.** DAT 1.0.1 camera stream to the laptop, boxes drawn on the phone, failure banner, mock glasses for the simulator. Ran on a physical iPhone 15 Plus with the glasses on 2026-10-24. | Use as-is for frames. |
+| Glasses audio out | Built in the relay: capture-button press (MWDATInputs, beta) or tap-to-pause speaks queued texts with `AVSpeechSynthesizer`, routed to the glasses over Bluetooth; another press stops speech. | Speak step instructions and answers through the same path. |
+| Laptop relay (`recognition/live_runner.py --listen`) | `POST /frame` (bearer token), `GET /stream.mjpg`, `GET /events` (SSE tracks); YOLO proposals, Gemini labels, tracking, JSONL records, optional OpenCV window. | Host for session state and new event types. |
+| Detectors | `scavscrap_v2_best.pt` (fine-tuned YOLO11n, 11 tech-device classes) and YOLO-World configs; v3 checkpoint on `gursimar/yolo26-training`. None has a component class. | Baseline only; component classes are unsupported. |
+| Gemini paths | `gemini_runner`, `cascade_runner`, live labelling with versioned prompts and schemas; confidence null. | Migrate prompts and schemas to the component catalog. |
+| Narrator (`recognition/narrator.py`) | Gemini text description per label (text only, no image), cached; optional ElevenLabs WAV played on the laptop. | Pattern for component explanations. |
+| Dashboard (`frontend/`) | Live MJPEG + SSE feed, boxes, rotating device model, measurements, description, metal assay; inventory drawer on `gurashish/inventory` (not merged). | Feed wiring and box overlay; device panels are replaced. |
+| Evaluation (`evaluation/`) | Manifest, prediction schema, detection and classification scoring with tests. | Score component identification. |
+
+Not built: microphone input, transcription, voice-command intents, session
+and step state, project packages, component classes, and any component images.
+
+## PC interface
+
+The dashboard focuses on the most confident labelled track, not a detected
+right-hand object. Adapt that dashboard concept into a step-focused workspace:
 
 | Display | Intended content |
 | --- | --- |
@@ -160,6 +199,33 @@ request failures. Boxes are not masks or verified connections. Gemini confidence
 remains null. Parsing or provider errors must not become successful inventory
 checks. A Next command records progression, not electrical verification.
 
+### Detector plan
+
+Gemini alone is too slow (10–30 s per label) to keep a highlight on a part while
+the view moves, so the build needs a fast local detector for boxes and Gemini
+for identity details such as color, value, and connector type.
+
+1. Baseline: run the existing YOLO-World proposals and Gemini labels on about
+   20 permitted glasses photos of the parts and record per-class results.
+2. Capture: add frame saving to the relay (`live_runner.py --save-frames DIR`,
+   not yet built) and collect about 150 glasses photos over several sessions:
+   laid out, held in the right hand, partly occluded, partly assembled, and
+   under varied light and angles.
+3. Hold out: the evaluation owner picks whole sessions for the frozen test set
+   before training. Split by session, never by frame; adjacent frames are
+   near-duplicates.
+4. Label: one box per physical piece, using the catalog classifications
+   `development_board`, `breadboard`, `led`, `resistor`, `wire`, `cable`.
+   Each jumper wire gets its own box.
+5. Fine-tune: start from COCO-pretrained YOLO in the existing `training/`
+   workspace; try `imgsz=1280` if the LED and resistor are missed at 640.
+6. Integrate: a new model config beside `recognition/scavscrap_v2_model.json`,
+   landing together with the class, prompt, schema, and test migration.
+
+A detector trained on this one inventory and table is a demo model. Do not
+claim general component recognition from it. Jumper wires (thin, often
+occluded) and right-hand association are the expected weak points.
+
 Power architecture is resolved: USB source → UNO USB connector → 5V/GND
 headers → breadboard circuit. The particular computer or USB adapter and cable
 availability remain open. Direct mains wiring is outside the demonstration.
@@ -170,6 +236,9 @@ Evaluate real, permitted glasses images of the selected parts for component
 identification, initial inventory matching, and held-object questions. Include
 occlusion and ambiguous views even with the small inventory. Report errors,
 abstentions, failures, latency, and cost; do not infer accuracy from scene size.
+Score highlighting per frame: whether the box for the step's required part lands
+on the correct physical piece, and how often it is missing. Freeze the test
+sessions, answer key, and pass criteria before any trained model is scored.
 
 Run the complete prepared tutorial with a novice and record completion,
 interventions, confusing instructions, and the final circuit behavior. Choose
@@ -181,7 +250,7 @@ incorrect placements. Mocked software tests do not establish vision performance.
 
 | Decision | Current position | Needed to resolve |
 | --- | --- | --- |
-| Physical parts and layout | Seven pieces across six types specified above | Confirm availability, breadboard layout, LED specifications, resistor rating, and USB cable; decide cable recognition scope |
+| Physical parts and layout — resolved | Inventory and steps confirmed 2026-10-24 | Record part specifications in the project package; cable is a detector class (`cable`) |
 | Power arrangement — partly resolved | USB powers UNO; circuit uses 5V/GND | Choose computer or USB adapter, confirm matching cable and finalize power-up procedure |
 | Step completion/checking — explicitly circle back | Voice advances the lesson; no automatic verification promised | Whether any checks occur, when, and what the UI may claim |
 | Progression control | Voice is primary | Activation phrase/listening mode, PC fallback, and optional hardware gesture mapping |
@@ -221,8 +290,9 @@ answers to the frame used; ignore obsolete answers after the query changes.
 
 ## Ray-Ban input integration
 
-The current iOS relay handles camera frames only. Its README records DAT 1.0.1.
-Meta's [iOS changelog](https://github.com/facebook/meta-wearables-dat-ios/blob/main/CHANGELOG.md)
+The iOS relay is finished and is not part of the remaining work: camera frames,
+capture-button input and spoken output to the glasses run on hardware (see
+`app/ios/README.md`). Remaining glasses work is microphone input only. Meta's [iOS changelog](https://github.com/facebook/meta-wearables-dat-ios/blob/main/CHANGELOG.md)
 documents experimental speech transcription, camera audio streaming, input
 events, motion, and voice invocation starting with LaunchApp in DAT 1.0.
 It states that experimental features can be tested but apps using them cannot
@@ -233,11 +303,12 @@ Use camera input for observations and microphone/transcription for commands and
 questions. Choose either SDK transcription or an audio-to-transcription path;
 ElevenLabs speech output alone is not a command interpreter. Add microphone
 permission, listening-state UI, command parsing, and event forwarding from
-phone to laptop. Test audio output routing separately.
+phone to laptop alongside the existing `POST /frame`. Bluetooth output routing
+is already shown in the relay status line.
 
-Optional touch/button events can later map to repeat or pause after testing
-MWDATInputs on the hardware. Do not assume the capture button can be freely
-remapped. App-launch voice invocation is separate from arbitrary in-lesson
+The capture button already reaches the app through MWDATInputs (beta) and
+currently triggers speech. Remapping it to repeat or pause is a choice, not new
+plumbing; keep a fallback because Inputs may not attach. App-launch voice invocation is separate from arbitrary in-lesson
 commands. Motion/head gestures and Display/Neural Band interactions are not
 required for this PC-based demo. PC buttons/keyboard are proposed fallbacks.
 
@@ -249,7 +320,9 @@ contract, existing prompts, models, datasets, or evaluation results.
 
 Before a component experiment runs:
 
-- Confirm the LED set, initial project plan, and power arrangement.
+- Confirm the power-up procedure (inventory and steps are confirmed).
+- Record owner approval in `AGENTS.md` for fine-tuning YOLO on the team's own
+  component photos and for the labeling tool's upload path.
 - Define component classes and attribute evidence rules in `labels/`; version
   the migration with matching prompts, schemas, and evaluation materials.
 - Update the five-device milestone in `AGENTS.md` for the new experiment while
@@ -259,8 +332,10 @@ Before a component experiment runs:
 - Evaluate a pretrained YOLO baseline before choosing a model or integrating
   guided assembly; report unsupported classes honestly.
 
-Existing restrictions on training, installation, weight downloads, credentials,
-cloud jobs, and uploads remain in force. Missing permitted images, local weights,
+Apart from that approved fine-tune, existing restrictions on training,
+installation, weight downloads, credentials, cloud jobs, and uploads remain in
+force. No public dataset covers all six classes (jumper wires and USB cables are
+missing), and public images may not be mixed into the test set. Missing permitted images, local weights,
 or approved runtime access must produce `needs_input`, not simulated inference.
 Any new upload path or provider needs its own authorization. Existing Google
 upload permissions do not automatically cover new component photos.
@@ -269,3 +344,25 @@ The next milestone is a runnable component-identification and guided LED-build
 evaluation for the selected parts. Automatic assembly checking is undecided. Application integration follows a documented
 review of those results. No component-recognition, circuit-verification, or
 learning-outcome claim is established by this specification alone.
+
+## Team and workstreams
+
+Two pairs. Within a pair, each shared artifact has one owner; between pairs,
+there are only two interfaces.
+
+| Pair | Person | Owns |
+| --- | --- | --- |
+| A: lesson | 1 — Noah | Breadboard diagram with the current placement highlighted, circuit reference, step workspace in `frontend/` (glasses view with the required-part highlight, current step, required parts, held object, diagram), PC fallback controls |
+| A: lesson | 4 — content and evaluation | Step list and plain-language explanations, answer key and frozen test sessions, pass criteria, novice test run, `AGENTS.md` and open-decisions upkeep |
+| B: live system | 2 — recognition | Detector plan above, catalog migration into `labels/`, Gemini prompt and schema migration, inventory check, required-part boxes, held-object answers, scored runs |
+| B: live system | 3 — voice and session state | Microphone, transcription, intents, session and step state on the laptop relay (revisions, stale/duplicate rejection, ignoring the app's own speech), spoken directions to the highlighted part, events to the dashboard and glasses audio |
+
+Interfaces, frozen on day one so each side can work against mocks:
+
+1. **Step file** (A → B): step ID, instruction, explanation, required
+   classifications and quantities, diagram highlight.
+2. **`/events` messages** (B → A): session state, inventory result,
+   required-part boxes, held-object answers, device/service status.
+
+Person 4 writes the answer key and pass criteria before person 2 scores, so
+recognition is not graded by its builder.
