@@ -1,0 +1,368 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		06D839991CB73724E7F5B3DD /* MWDATInputs in Frameworks */ = {isa = PBXBuildFile; productRef = 255562038D8F34DF8F9A07D2 /* MWDATInputs */; };
+		3BD41D1F0A72F5F8AD0FEA93 /* MWDATCore in Frameworks */ = {isa = PBXBuildFile; productRef = 6EB163955373E1CE4BA24064 /* MWDATCore */; };
+		57F7F69C11E6FE99B18D89F1 /* MWDATCamera in Frameworks */ = {isa = PBXBuildFile; productRef = B3142AD50DB53CAE8E4A7438 /* MWDATCamera */; };
+		5FFDAE36430A9F9419DA52B6 /* Voice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7104EA04C35D3F31079B36 /* Voice.swift */; };
+		6A5A2CD162C7C5AA892BE25C /* RelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B600E794EF2311E5D3A3A1DC /* RelayClient.swift */; };
+		797C2C8F8DDB6294425D8C4E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 766F3B7D103D1871E21B0C82 /* ContentView.swift */; };
+		848729C8CE9531C5309BAFD7 /* ScavRelayApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FC3DDBDD9ABB09F56BC8547 /* ScavRelayApp.swift */; };
+		908017F39957D578C065CD65 /* MWDATMockDevice in Frameworks */ = {isa = PBXBuildFile; productRef = 2006204AE333F1637FFCBEC4 /* MWDATMockDevice */; };
+		AB61C15CBE019A18B707760E /* GlassesController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAF400CF70D48C87F636577E /* GlassesController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		2F7104EA04C35D3F31079B36 /* Voice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voice.swift; sourceTree = "<group>"; };
+		766F3B7D103D1871E21B0C82 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8FC3DDBDD9ABB09F56BC8547 /* ScavRelayApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScavRelayApp.swift; sourceTree = "<group>"; };
+		9AC20CEBF7BB426FA7D21504 /* ScavRelay.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScavRelay.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B600E794EF2311E5D3A3A1DC /* RelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayClient.swift; sourceTree = "<group>"; };
+		CAF400CF70D48C87F636577E /* GlassesController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesController.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C08FABF675FBFF6C05075C5B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3BD41D1F0A72F5F8AD0FEA93 /* MWDATCore in Frameworks */,
+				57F7F69C11E6FE99B18D89F1 /* MWDATCamera in Frameworks */,
+				908017F39957D578C065CD65 /* MWDATMockDevice in Frameworks */,
+				06D839991CB73724E7F5B3DD /* MWDATInputs in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3D338159560A9C31290ECB90 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				9AC20CEBF7BB426FA7D21504 /* ScavRelay.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BAEC7CB327DFF3B5A721809B /* ScavRelay */ = {
+			isa = PBXGroup;
+			children = (
+				766F3B7D103D1871E21B0C82 /* ContentView.swift */,
+				CAF400CF70D48C87F636577E /* GlassesController.swift */,
+				B600E794EF2311E5D3A3A1DC /* RelayClient.swift */,
+				8FC3DDBDD9ABB09F56BC8547 /* ScavRelayApp.swift */,
+				2F7104EA04C35D3F31079B36 /* Voice.swift */,
+			);
+			path = ScavRelay;
+			sourceTree = "<group>";
+		};
+		CE2D3D432E6EEC866F39C247 = {
+			isa = PBXGroup;
+			children = (
+				BAEC7CB327DFF3B5A721809B /* ScavRelay */,
+				3D338159560A9C31290ECB90 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B6B75200FDA70D4CE0430B86 /* ScavRelay */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 797798E7E47C5BC4EF0870B2 /* Build configuration list for PBXNativeTarget "ScavRelay" */;
+			buildPhases = (
+				692E7D8D59348176B7C0ECDD /* Sources */,
+				C08FABF675FBFF6C05075C5B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScavRelay;
+			packageProductDependencies = (
+				6EB163955373E1CE4BA24064 /* MWDATCore */,
+				B3142AD50DB53CAE8E4A7438 /* MWDATCamera */,
+				2006204AE333F1637FFCBEC4 /* MWDATMockDevice */,
+				255562038D8F34DF8F9A07D2 /* MWDATInputs */,
+			);
+			productName = ScavRelay;
+			productReference = 9AC20CEBF7BB426FA7D21504 /* ScavRelay.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D637A90C395FEFAD02ACF1B8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					B6B75200FDA70D4CE0430B86 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 03D8597F30418CF8159FB73D /* Build configuration list for PBXProject "ScavRelayApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = CE2D3D432E6EEC866F39C247;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B6B75200FDA70D4CE0430B86 /* ScavRelay */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		692E7D8D59348176B7C0ECDD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				797C2C8F8DDB6294425D8C4E /* ContentView.swift in Sources */,
+				AB61C15CBE019A18B707760E /* GlassesController.swift in Sources */,
+				6A5A2CD162C7C5AA892BE25C /* RelayClient.swift in Sources */,
+				848729C8CE9531C5309BAFD7 /* ScavRelayApp.swift in Sources */,
+				5FFDAE36430A9F9419DA52B6 /* Voice.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0098F58D4F2CF589F627433E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScavRelay/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.noahhova.scavrelay;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		0CCCAD826FF5A50A5AF6B6D4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		13854106FDC6C9BE84A7CCD0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScavRelay/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.noahhova.scavrelay;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D62DB4AA9F4271203163EDBF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		03D8597F30418CF8159FB73D /* Build configuration list for PBXProject "ScavRelayApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D62DB4AA9F4271203163EDBF /* Debug */,
+				0CCCAD826FF5A50A5AF6B6D4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		797798E7E47C5BC4EF0870B2 /* Build configuration list for PBXNativeTarget "ScavRelay" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				13854106FDC6C9BE84A7CCD0 /* Debug */,
+				0098F58D4F2CF589F627433E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/meta-wearables-dat-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2006204AE333F1637FFCBEC4 /* MWDATMockDevice */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATMockDevice;
+		};
+		255562038D8F34DF8F9A07D2 /* MWDATInputs */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATInputs;
+		};
+		6EB163955373E1CE4BA24064 /* MWDATCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCore;
+		};
+		B3142AD50DB53CAE8E4A7438 /* MWDATCamera */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 54DF56D1524BE9154EF8147F /* XCRemoteSwiftPackageReference "meta-wearables-dat-ios" */;
+			productName = MWDATCamera;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D637A90C395FEFAD02ACF1B8 /* Project object */;
+}

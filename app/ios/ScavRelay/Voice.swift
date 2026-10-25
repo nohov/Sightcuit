@@ -167,7 +167,7 @@ final class Voice: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, AVAu
         : "Step \(reply.step_index + 1) of \(reply.step_count)" + (reply.project.map { " · \($0)" } ?? "")
       play(reply.audio_wav_base64, saying: reply.say)
     case .failure(let failure):
-      error = failure.localizedDescription
+      error = "Tutor: \(failure.localizedDescription)"
       speak("I couldn't reach the laptop.")
     }
   }

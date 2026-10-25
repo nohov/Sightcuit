@@ -15,9 +15,13 @@ final class GlassesController: ObservableObject {
   @Published var status = ""
   @Published var frame: UIImage?
   @Published var result: RelayResult?
+  @Published var resultFrame: UIImage?
   @Published var relayError: String?
+  @Published var detectorError: String?
 
   let relay = RelayClient()
+  private let detectorRelay = RelayClient()
+  private var useDetector = false
   /// Short press of the glasses capture button: the tutor's "step done" press. Returns false when the tutor is
   /// not listening, so the press speaks descriptions instead. The stream keeps running.
   var onCapture: (() -> Bool)?
@@ -45,8 +49,14 @@ final class GlassesController: ObservableObject {
     }
   }
 
-  func start(host: String, token: String) async {
+  func start(host: String, detectorHost: String, token: String) async {
     relay.configure(host: host, token: token)
+    useDetector = !detectorHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if useDetector { detectorRelay.configure(host: detectorHost, token: token) }
+    result = nil
+    resultFrame = nil
+    relayError = nil
+    detectorError = nil
     do {
       if try await Wearables.shared.checkPermissionStatus(.camera) != .granted {
         guard try await Wearables.shared.requestPermission(.camera) == .granted else {
@@ -115,12 +125,13 @@ final class GlassesController: ObservableObject {
     }
   }
 
-  /// Speaks every described box from the last relay reply in turn, biggest (nearest the wearer) first.
+  /// Speaks every box from the last relay reply in turn, biggest (nearest the wearer) first.
   func describeCurrent() {
     var texts: [String] = []
     for track in (result?.tracks ?? []).sorted(by: { area($0.box_xyxy_pixels) > area($1.box_xyxy_pixels) }) {
       // Two items of the same product share one text; say it once.
-      if let text = track.description, !texts.contains(text) { texts.append(text) }
+      let text = useDetector ? (track.description ?? track.name ?? track.label) : track.description
+      if let text, !texts.contains(text) { texts.append(text) }
     }
     speak(texts.isEmpty ? ["Nothing identified yet. Hold the item in view for a few seconds."] : texts)
   }
@@ -218,11 +229,28 @@ final class GlassesController: ObservableObject {
         self.frame = image
         self.relay.send(image) { outcome in
           switch outcome {
-          case .success(let result):
-            self.result = result
+          case .success(let (result, resultFrame)):
+            if !self.useDetector, let resultFrame {
+              self.resultFrame = resultFrame
+              self.result = result
+            }
             self.relayError = nil
           case .failure(let error):
-            self.relayError = error.localizedDescription
+            self.relayError = "Tutor: \(error.localizedDescription)"
+          }
+        }
+        if self.useDetector {
+          self.detectorRelay.send(image) { outcome in
+            switch outcome {
+            case .success(let (result, resultFrame)):
+              if let resultFrame {
+                self.resultFrame = resultFrame
+                self.result = result
+              }
+              self.detectorError = nil
+            case .failure(let error):
+              self.detectorError = "Detector: \(error.localizedDescription)"
+            }
           }
         }
       }

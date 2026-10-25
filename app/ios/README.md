@@ -4,8 +4,8 @@ ScavRelay streams the glasses camera through the Meta Wearables Device Access
 Toolkit (DAT) and POSTs each frame to `recognition.live_runner --listen` on the
 laptop. All recognition (YOLO-World proposals, Gemini labels, JSONL records)
 runs on the laptop; the phone only relays frames and draws the returned boxes.
-Boxes trail the newest frame by one inference. Relay or network failures show
-as a red banner, never as detections.
+The phone shows the frame paired with each box result, so its preview may trail
+the live camera. Relay or network failures show as a red banner, never as detections.
 
 Status: these sources built and launched in an iPhone 17 Pro simulator with
 Xcode 26.6 and the existing DAT SDK 1.0.1 package. On 2026-10-24 a physical
@@ -22,21 +22,18 @@ Meta AI's update screen; re-enable Developer Mode after updating.
   firmware updates.
 - Free Apple ID is enough for your own phone (re-install every 7 days).
 
-## Create the Xcode project
+## Open the Xcode project
 
-1. Xcode > New Project > iOS App, SwiftUI, name `ScavRelay`, save it in this folder.
-2. Delete the generated `ContentView.swift`/`ScavRelayApp.swift` and add the
-   files in `ScavRelay/` to the target.
-3. Build Settings > Info.plist File: `ScavRelay/Info.plist`; turn off
-   "Generate Info.plist File".
-4. File > Add Package Dependencies: `https://github.com/facebook/meta-wearables-dat-ios`,
-   add `MWDATCore`, `MWDATCamera`, `MWDATInputs`, and `MWDATMockDevice` to the target.
-   For the capture button, also enable the experimental Inputs
-   capability for this app in Wearables Developer Center. Without it, the stream
-   still runs and the app says to use "tutor, done" instead.
-5. Signing & Capabilities: pick your team. `TeamID` in `Info.plist` comes from `$(DEVELOPMENT_TEAM)`.
-6. Optional, for the simulator: add a permitted local clip as `mock-feed.mp4` to the
-   target. DEBUG builds then show "Use mock glasses".
+Open `app/ios/ScavRelayApp.xcodeproj` from this repository. The project includes
+the Swift sources, `Info.plist`, and the Meta DAT 1.0.1 package. For a physical
+iPhone, choose your team under Signing & Capabilities; `TeamID` in `Info.plist`
+uses `$(DEVELOPMENT_TEAM)`. To regenerate the project after changing `project.yml`,
+run `xcodegen generate` from `app/ios/`.
+
+For the capture button, also enable the experimental Inputs capability for this
+app in Wearables Developer Center. Without it, the stream still runs and the
+app says to use "tutor, done" instead. Optionally add a permitted local clip as
+`mock-feed.mp4` to the target for "Use mock glasses" in DEBUG builds.
 
 ## Run
 
@@ -108,6 +105,15 @@ It starts with no build chosen. Add `--project projects/led_resistor.json` to
 start on the LED tutorial instead. It uses `SCAVSCRAP_RELAY_TOKEN` from `.env`,
 the same token as `live_runner`, so the app keeps its saved token. Start
 streaming, then tap "Start listening".
+
+### Tutor + detector at once
+
+To see boxes while using the tutor, run `recognition.tutor_runner` on port 8765 and
+`recognition.yolo_relay` on port 8766 with the same `SCAVSCRAP_RELAY_TOKEN`.
+Enter `<laptop-ip>:8765` under **Laptop relay** and `<laptop-ip>:8766` under
+**Detector relay (optional)**. Frames go to both relays independently; boxes
+come from the detector, while spoken questions and capture presses use the tutor.
+Leave the detector field empty for the original single-relay behavior.
 
 - **Session:** "tutor, what is this?" remembers each part it names. "tutor,
   what can I make with these?" suggests builds from them, and "tutor, let's make

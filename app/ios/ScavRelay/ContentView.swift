@@ -7,7 +7,9 @@ struct ContentView: View {
   @ObservedObject var glasses: GlassesController
   @StateObject private var voice = Voice()
   @AppStorage("relayHost") private var host = ""
+  @AppStorage("detectorHost") private var detectorHost = ""
   @State private var token = Keychain.read() ?? ""
+  @FocusState private var editingRelay: Bool
 
   var body: some View {
     VStack(spacing: 0) {
@@ -17,7 +19,17 @@ struct ContentView: View {
             .keyboardType(.URL)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
+            .focused($editingRelay)
+          VStack(alignment: .leading) {
+            Text("Detector relay (optional)").font(.caption).foregroundStyle(.secondary)
+            TextField("192.168.1.20:8766", text: $detectorHost)
+              .keyboardType(.URL)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+              .focused($editingRelay)
+          }
           SecureField("Token printed by live_runner", text: $token)
+            .focused($editingRelay)
             .onChange(of: token) { _, value in Keychain.save(value) }
         }
         Section("Glasses") {
@@ -31,7 +43,10 @@ struct ContentView: View {
           }
           #endif
           if glasses.streamState == "stopped" {
-            Button("Start streaming") { Task { await glasses.start(host: host, token: token) } }
+            Button("Start streaming") {
+              editingRelay = false
+              Task { await glasses.start(host: host, detectorHost: detectorHost, token: token) }
+            }
               .disabled(host.isEmpty || token.isEmpty)
           } else {
             // Same as a tap on the glasses; also the check that audio reaches the glasses during a stream.
@@ -53,7 +68,15 @@ struct ContentView: View {
           if !voice.said.isEmpty { Text(voice.said).font(.footnote).foregroundStyle(.secondary) }
         }
       }
-      .frame(height: 620)
+      .frame(maxHeight: 620)
+      .scrollDismissesKeyboard(.interactively)
+      .onSubmit { editingRelay = false }
+      .toolbar {
+        ToolbarItemGroup(placement: .keyboard) {
+          Spacer()
+          Button("Done") { editingRelay = false }
+        }
+      }
       .onAppear {
         glasses.onCapture = { [voice, glasses] in
           guard voice.listening else { return false }
@@ -73,10 +96,13 @@ struct ContentView: View {
         // Failures are never shown as detections.
         Banner(text: relayError)
       }
+      if let detectorError = glasses.detectorError {
+        Banner(text: detectorError)
+      }
       ZStack {
         Color(red: 0.05, green: 0.10, blue: 0.11)
         if let frame = glasses.frame {
-          FrameOverlay(image: frame, result: glasses.result)
+          FrameOverlay(image: glasses.resultFrame ?? frame, result: glasses.result)
         } else {
           Label("Camera feed appears when streaming", systemImage: "viewfinder")
             .font(.footnote)

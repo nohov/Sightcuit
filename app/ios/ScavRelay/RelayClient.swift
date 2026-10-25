@@ -39,6 +39,8 @@ final class RelayClient {
   private var askEndpoint: URL?
   private var token = ""
   private var inFlight = false
+  // shortcut: replies are paired with the prior successful send; add frame IDs if inference falls further behind.
+  private var previousImage: UIImage?
 
   func configure(host: String, token: String) {
     // Pasting a whole terminal line into the hidden token field brings a trailing newline.
@@ -46,6 +48,7 @@ final class RelayClient {
     endpoint = URL(string: "http://\(host)/frame")
     askEndpoint = URL(string: "http://\(host)/ask")
     self.token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    previousImage = nil
   }
 
   /// Sends one spoken request to the tutor; the laptop answers about the newest frame it has.
@@ -75,13 +78,13 @@ final class RelayClient {
     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard status == 200 else {
       let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "no detail"
-      throw RelayError(errorDescription: "Tutor HTTP \(status): \(message)", status: status)
+      throw RelayError(errorDescription: "HTTP \(status): \(message)", status: status)
     }
     return try JSONDecoder().decode(TutorReply.self, from: data)
   }
 
   /// Drops the frame when the previous one is still in flight; the laptop only wants the newest frame anyway.
-  func send(_ image: UIImage, done: @escaping @MainActor (Result<RelayResult, Error>) -> Void) {
+  func send(_ image: UIImage, done: @escaping @MainActor (Result<(RelayResult, UIImage?), Error>) -> Void) {
     guard !inFlight else { return }
     guard let endpoint else { return done(.failure(RelayError(errorDescription: "Relay host is not a valid URL"))) }
     guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return }
@@ -99,7 +102,10 @@ final class RelayClient {
           let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "no detail"
           throw RelayError(errorDescription: "Relay HTTP \(status): \(message)")
         }
-        done(.success(try JSONDecoder().decode(RelayResult.self, from: data)))
+        let result = try JSONDecoder().decode(RelayResult.self, from: data)
+        let resultFrame = previousImage
+        previousImage = image
+        done(.success((result, resultFrame)))
       } catch {
         done(.failure(error))
       }
