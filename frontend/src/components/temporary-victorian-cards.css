@@ -1,0 +1,27 @@
+/* TEMPORARY scoped previews. Fixed-width ornament preserves dashboard space. */
+.victorian-studies { margin-top: 28px; padding: 28px 0 20px; border-top: 1px solid var(--border); }
+.victorian-studies-heading { max-width: 740px; margin-bottom: 24px; }
+.victorian-studies-heading h2 { font: 500 30px/1.15 var(--display); color: var(--text); margin: 12px 0; }
+.victorian-studies-heading p { font-size: 17px; line-height: 1.5; color: var(--text-soft); margin: 6px 0; }
+.victorian-studies-heading .victorian-study-note { font-size: 14px; color: var(--muted); }
+.victorian-studies-grid { display: grid; grid-template-columns: minmax(0, 440px); gap: 18px; align-items: start; }
+.victorian-study { min-width: 0; }
+.victorian-frame { position: relative; width: 100%; isolation: isolate; background: var(--panel); }
+.victorian-card-paper { position: relative; display: flex; flex-direction: column; align-items: stretch; padding: 34px 30px; min-height: 330px; color: var(--text); }
+.victorian-frame-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.victorian-accession, .victorian-rule, .victorian-subtitle, .victorian-specimen { display: none; }
+.victorian-card-paper h3 { margin: 0 0 20px; font: 700 15px/1.3 var(--display); letter-spacing: .1em; color: var(--accent); }
+.victorian-specimen-name { font: 600 24px/1.15 var(--body); margin: 0 0 18px; }
+.victorian-ledger { width: 100%; margin: 0; font: 16px/1.45 var(--body); }
+.victorian-ledger div { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #78592c55; padding: 8px 0; }
+.victorian-ledger dt { color: var(--text-soft); }
+.victorian-ledger dd { margin: 0; text-align: right; }
+.victorian-card-foot { margin: auto 0 0; padding-top: 14px; font: 10px var(--display); letter-spacing: .1em; color: var(--muted); }
+.victorian-study-caption { display: flex; gap: 10px; align-items: baseline; padding: 12px 3px 0; }
+.victorian-study-caption > span { color: #9e7d44; font: italic 20px var(--body); }
+.victorian-study-caption h3 { font: 500 19px var(--display); color: var(--text-soft); margin: 0 0 4px; }
+.victorian-study-caption p { font-size: 14px; line-height: 1.4; color: var(--muted); margin: 0; }
+.victorian-source { display: inline-block; margin-top: 8px; font-size: 13px; color: var(--text-soft); text-underline-offset: 3px; }
+.victorian-source:hover { color: var(--accent); }
+.victorian-source:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 650px) { .victorian-studies-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; } }

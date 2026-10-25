@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Electronics bench — first LED circuit</title>
+<link rel="stylesheet" href="bench.css">
+<main>
+<header><span class="eyebrow">ELECTRONICS BENCH / STUDY 001</span><h1>Make a little light.</h1><p>A breadboard, a resistor, and one red LED. Follow the path from supply to ground.</p></header>
+<div class="bench-grid">
+<section class="diagram"><div class="section-head"><h2>01 / Breadboard wiring</h2><span>5 V DC · 220 Ω · red LED</span></div>
+<svg viewBox="105 100 180 125" role="img" aria-labelledby="circuit-title circuit-description">
+<title id="circuit-title">Breadboard LED circuit</title><desc id="circuit-description">Positive 5 volt supply connects to E10. A 220 ohm resistor connects A10 to A17. Red LED anode is in E17 and cathode in E16. D16 connects to supply ground. Each vertical A through E group of one numbered column is internally connected.</desc>
+<image href="vendor/breadboard.svg" x="50" y="110" width="475.438" height="151.2"/>
+<g stroke-width="4" opacity=".25" stroke-linecap="round"><path stroke="#ef6a35" d="M140.119 146V174.8"/><path stroke="#dcae16" d="M190.52 146V174.8"/><path stroke="#277b83" d="M183.32 146V174.8"/></g>
+<g fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path stroke="#d94435" d="M115 205H140.119V174.8"/>
+<path stroke="#244657" d="M265 205H183.32V167.6"/>
+</g>
+<image href="vendor/resistor_220.svg" x="138.887" y="140.962" width="52.865" height="11.96"/>
+<image href="vendor/LED-5mm-red-leg.svg" x="178.795" y="145.593" width="15.456" height="29.207"/>
+<circle id="led-glow" cx="186.52" cy="153" r="7" fill="#ff3c19" opacity="0"/>
+<g fill="#15303b" font-family="Arial,sans-serif" font-size="5">
+<text x="153" y="136">220 Ω</text><text x="198" y="155">RED LED</text>
+<text x="194" y="177">+ anode / E17</text><text x="194" y="185">− cathode / E16</text>
+<text x="108" y="216" fill="#b73329">+5 V → E10</text><text x="238" y="216">D16 → GND</text>
+</g>
+</svg>
+<p class="diagram-note">Magnified breadboard section · A–E holes in the same numbered column share a connection. Columns 16 and 17 are separate.</p>
+<div class="control"><button id="power" type="button" aria-pressed="false">Turn power on</button><span id="status" role="status">Power off · 0 mA</span></div>
+</section>
+<aside><h2>02 / Build order</h2><ol><li>With power off, connect <b>+5 V to E10</b>.</li><li>Place the <b>220 Ω resistor between A10 and A17</b>.</li><li>Put the LED’s <b>anode (+) in E17</b> and <b>cathode (−) in E16</b>. The cathode is usually the short lead beside the flat edge.</li><li>Connect <b>D16 to supply ground</b>, then turn on the supply.</li></ol><div class="calculation"><span>ESTIMATED LED CURRENT</span><strong>13.6 mA</strong><p>(5 V − 2 V) ÷ 220 Ω</p><small>Assumes a 2 V LED forward drop. Actual current depends on the LED. The toggle illustrates this circuit; it is not a SPICE simulation.</small></div></aside>
+</div>
+<section class="path"><h2>03 / The electrical path</h2><p><b>+5 V</b><span>→</span><b>220 Ω resistor</b><span>→</span><b>LED anode (+)</b><span>→</span><b>LED cathode (−)</b><span>→</span><b>GND</b></p><small>The resistor limits current. Keep it in series with the LED.</small></section>
+<section><h2>04 / Component library</h2><div class="parts"><article><img src="vendor/breadboard.svg" alt="Fritzing solderless breadboard"><h3>Solderless breadboard</h3><p>Connected terminal groups hold components without solder.</p></article><article><img src="vendor/resistor_220.svg" alt="Fritzing 220 ohm resistor"><h3>220 Ω resistor</h3><p>Red–red–brown value bands. A ¼ W part is ample for this circuit.</p></article><article><img src="vendor/LED-5mm-red-leg.svg" alt="Fritzing red LED"><h3>5 mm red LED</h3><p>Polarized component: anode to the resistor, cathode to ground.</p></article></div></section>
+<footer><h2>GitHub sources & attribution</h2><p>Component graphics by <a href="https://github.com/fritzing/fritzing-parts">Fritzing / fritzing-parts</a>. Downloaded from commit <code>27535f2fd02097be9bed229b75aa8e9be282a4a0</code>.</p><ul id="sources"></ul><p>This diagram uses Fritzing graphics. Graphics and the adapted circuit illustration are licensed under <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>. Original assets are stored unchanged; placement, wiring, labels, and glow are additions. <a href="vendor/LICENSE.txt">Included upstream license</a>.</p><p><a href="/">Back to the dashboard</a></p></footer>
+</main>
+<script src="bench.js"></script>
+</html>

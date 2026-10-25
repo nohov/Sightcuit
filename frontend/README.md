@@ -1,8 +1,8 @@
 # ScavScrap lesson dashboard (frontend)
 
 Steampunk dashboard with a vertical Meta glasses recording, a five-step LED
-lesson preview, and a conceptual breadboard drawing. The small square model
-tab is a placeholder.
+lesson preview, and a conceptual breadboard drawing. The model circle renders
+drafting-style reference artwork for a supported component observation.
 
 The desktop layout has a compact rule for a 15-inch MacBook Pro sized browser
 window (about 1440 CSS pixels wide with 800 pixels of usable height). Shorter
@@ -73,6 +73,16 @@ connection review, and power-up procedure still need a prepared plan for the
 confirmed breadboard. Keep USB disconnected during assembly. The separate
 `public/electronics/` demo depicts a 220 Ω example and is not this lesson's
 wiring guide.
+
+The model circle starts in automatic mode. It selects reference artwork only
+when one supported component appears in a fresh live relay event. The current
+five-device detector does not recognize lesson components, so the circle waits
+unless a future component-capable backend supplies that event. The artwork
+does not confirm resistance, LED color, placement, or wiring.
+
+Temporary React design studies and their source assets remain in the repository
+for review, but are not rendered below the dashboard in development or
+production mode.
 
 Live detection boxes still appear on the recording feed. Their confidence is
 the detector proposal's, not Gemini's (Gemini returns none).

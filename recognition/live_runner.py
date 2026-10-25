@@ -35,6 +35,7 @@ from recognition.narrator import (
     DEFAULT_TTS_MODEL, DEFAULT_VOICE, PROMPT_VERSION as DESCRIBE_VERSION, Narrator, elevenlabs_speak, gemini_describe,
 )
 from recognition.runio import start_logging
+from recognition.component_preview import component_preview
 from recognition.yolo_runner import UltralyticsPredictor, load_config, normalize_summary
 
 
@@ -569,6 +570,8 @@ def dashboard_record(shown: dict[str, Any]) -> dict[str, Any]:
                 "confidence": track["proposal"].get("confidence"),
             },
             "gemini_label": project_label(track),
+            **({"component_preview": component_preview(project_label(track))}
+               if component_preview(project_label(track)) else {}),
             "name": gemini_name(track),
             "description": track.get("description"),
             "hint": track.get("hint"),

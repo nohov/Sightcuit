@@ -1,0 +1,62 @@
+.lesson-walkthrough {
+  max-width: 1440px;
+  width: 100%;
+  margin: 18px auto 0;
+  padding: clamp(24px, 4vw, 54px);
+  background: #1a120b;
+  color: var(--text-soft);
+}
+
+.lesson-walkthrough-heading { max-width: 780px; margin-bottom: 28px; }
+.lesson-walkthrough-heading > span { color: var(--accent); font-size: 11px; letter-spacing: .14em; }
+.lesson-walkthrough-heading h2 { margin: 8px 0; color: var(--text); font: 36px/1.1 var(--display); }
+.lesson-walkthrough-heading p { margin: 0; font-size: 16px; line-height: 1.5; }
+.lesson-walkthrough-list { list-style: none; margin: 0; padding: 0; counter-reset: lesson; }
+.walkthrough-step { padding: 28px 0 34px; border-top: 1px solid #8c6a2e88; }
+.walkthrough-step article { min-width: 0; }
+.walkthrough-step-head { display: grid; grid-template-columns: 170px minmax(0, 1fr); align-items: baseline; gap: 16px; margin-bottom: 12px; }
+.walkthrough-step-head span { color: var(--accent); font: 11px/1.3 var(--mono); letter-spacing: .06em; }
+.walkthrough-step-head h3 { margin: 0; color: var(--text); font: 27px/1.15 var(--display); }
+.walkthrough-step p { max-width: 900px; margin: 0 0 16px; font-size: 16px; line-height: 1.45; }
+.walkthrough-step strong { color: #f2d183; }
+.walkthrough-step .walkthrough-aside { margin: 15px 0 0; color: var(--muted); font-size: 13px; }
+
+.walkthrough-inventory-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 18px; max-width: 900px; margin: 18px 0; padding: 0; list-style: none; }
+.walkthrough-inventory-list li { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #6b4c2a88; }
+.walkthrough-inventory-list strong { min-width: 18px; font: 17px var(--mono); }
+
+.walkthrough-route { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 24px 0; font: 14px/1.3 var(--mono); }
+.walkthrough-route span { padding: 11px 15px; background: #2a1d13; color: #f2d183; }
+.walkthrough-route b { color: var(--accent); }
+
+.walkthrough-resistor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 1fr); gap: 24px; align-items: center; max-width: 1000px; }
+.walkthrough-resistor-path { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 20px 0; border-top: 1px solid #6b4c2a88; border-bottom: 1px solid #6b4c2a88; font: 13px var(--mono); }
+.walkthrough-resistor-path strong { position: relative; padding: 9px 14px; background: #4b3417; white-space: nowrap; }
+.walkthrough-resistor-path strong::before, .walkthrough-resistor-path strong::after { content: ""; position: absolute; top: 50%; width: 12px; border-top: 1px solid var(--accent); }
+.walkthrough-resistor-path strong::before { right: 100%; }
+.walkthrough-resistor-path strong::after { left: 100%; }
+
+.walkthrough-polarity { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; max-width: 830px; margin: 20px 0; }
+.walkthrough-polarity > div { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; align-items: center; padding: 16px; background: #2a1d13; }
+.walkthrough-polarity-mark { grid-row: span 2; color: var(--accent); font: 34px/1 var(--display); }
+.walkthrough-polarity small { font-size: 12px; line-height: 1.3; }
+.walkthrough-led-symbol { color: var(--accent); font: 14px var(--mono); white-space: nowrap; }
+
+.walkthrough-review-list { max-width: 960px; margin: 18px 0 0; padding: 0; list-style: none; counter-reset: review; }
+.walkthrough-review-list li { counter-increment: review; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 14px; padding: 12px 0; border-bottom: 1px solid #6b4c2a88; font-size: 16px; line-height: 1.4; }
+.walkthrough-review-list li::before { content: counter(review, decimal-leading-zero); color: var(--accent); font: 13px var(--mono); }
+
+@media (max-width: 800px) {
+  .walkthrough-step-head { grid-template-columns: 1fr; gap: 5px; }
+  .walkthrough-inventory-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .walkthrough-resistor-layout { grid-template-columns: 1fr; gap: 0; }
+}
+@media (max-width: 560px) {
+  .lesson-walkthrough { padding: 22px; }
+  .lesson-walkthrough-heading h2 { font-size: 29px; }
+  .walkthrough-step-head h3 { font-size: 23px; }
+  .walkthrough-inventory-list, .walkthrough-polarity { grid-template-columns: 1fr; }
+  .walkthrough-led-symbol { padding-left: 16px; }
+  .walkthrough-route { gap: 7px; }
+  .walkthrough-route span { padding: 8px; }
+}

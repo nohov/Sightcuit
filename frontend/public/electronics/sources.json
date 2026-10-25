@@ -1,0 +1,40 @@
+{
+    "repository":  "https://github.com/fritzing/fritzing-parts",
+    "commit":  "27535f2fd02097be9bed229b75aa8e9be282a4a0",
+    "license":  "CC-BY-SA-3.0",
+    "graphicsModified":  false,
+    "files":  [
+                  {
+                      "name":  "breadboard.svg",
+                      "sha256":  "40DE1B8381FD69E8CF6B19279555858CE2D41E5E7ED16607E346C8196F1CD1E5"
+                  },
+                  {
+                      "name":  "breadboard2.svg",
+                      "sha256":  "D56D87267C57EA2CCEC1507A7E8284329442247E47172335CB94F31BDD526A14"
+                  },
+                  {
+                      "name":  "arduino_Uno_Rev3_breadboard.svg",
+                      "sha256":  "9F011EA86E51A4B2FE4D3BD1C11DBE844227334BF678D7DB21D2DF18C18B9205"
+                  },
+                  {
+                      "name":  "LED-5mm-red-leg.svg",
+                      "sha256":  "345252B03525E7D2676A406971D027733150CD64573D6C24217A6C318A38B945"
+                  },
+                  {
+                      "name":  "LED-5mm.fzp",
+                      "sha256":  "69D55F28B3D94FD35878B801A3FA2A007FBF670B148006311E5E26CBF5014447"
+                  },
+                  {
+                      "name":  "LICENSE.txt",
+                      "sha256":  "F99C6C2E517171EC2011E8A69F6D320AAFBBAEFA35164642CB0D17B44484EA34"
+                  },
+                  {
+                      "name":  "resistor_220.svg",
+                      "sha256":  "D6F8EB602D1BA8E1D5EE7453F91B8E4235913BAAEA29DC67D581D4135A096222"
+                  },
+                  {
+                      "name":  "resistor_330.svg",
+                      "sha256":  "7FBCFA881AEC88A669E8544BDD5E881FA85A825DBA34588EE149227E5E96B8C9"
+                  }
+              ]
+}

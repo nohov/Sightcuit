@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { lookup } from "./devices.js";
 import { DEFAULT_SIZE_HW, initialRelay, saveRelay, subscribe, videoUrl } from "./feed.js";
 import { Hammer, Screwdriver, Wrench } from "./components/Tools.jsx";
@@ -65,6 +65,8 @@ function RelayForm({ relay, onConnect, onClose }) {
 function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, status, onRelayChange }) {
   const tracks = frame?.tracks || [];
   const [frameH, frameW] = sizeHW;
+  const screenRef = useRef(null);
+  const [screenSize, setScreenSize] = useState({ width: 0, height: 0 });
   const [formOpen, setFormOpen] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const src = paused ? null : videoUrl(relay);
@@ -80,11 +82,31 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
   }, [status]);
 
   const showVideo = Boolean(src) && !videoFailed;
+  useEffect(() => {
+    const screen = screenRef.current;
+    if (!screen) return undefined;
+    const measure = () => {
+      const { width, height } = screen.getBoundingClientRect();
+      setScreenSize((prev) => prev.width === width && prev.height === height ? prev : { width, height });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(screen);
+    return () => observer.disconnect();
+  }, []);
+  const imageRatio = frameW / frameH;
+  const fittedWidth = screenSize.width && screenSize.height
+    ? Math.min(screenSize.width, screenSize.height * imageRatio)
+    : 0;
+  const fittedHeight = fittedWidth / imageRatio;
+  const stageStyle = fittedWidth
+    ? { aspectRatio: `${frameW} / ${frameH}`, width: fittedWidth, height: fittedHeight }
+    : { aspectRatio: `${frameW} / ${frameH}`, width: "100%" };
 
   return (
     <section className="panel recording">
       <div className="panel-head">
-        <h2>Meta Recording</h2>
+        <h2 className="visually-hidden">Meta Recording</h2>
         <span className="mono muted">
           {STATUS_TEXT[status]} · {frameW}×{frameH}
         </span>
@@ -93,6 +115,7 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
       <div className="viewport">
         <div
           className="feed-screen"
+          ref={screenRef}
         >
           <div className="rec-badge mono">
             <span className={`rec-dot ${paused ? "" : "blink"}`} />
@@ -117,7 +140,7 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
             </div>
           )}
 
-          <div className="stage" style={{ aspectRatio: `${frameW} / ${frameH}` }}>
+          <div className="stage" style={stageStyle}>
             {showVideo && (
               <img className="video" src={`${src}&attempt=${videoAttempt}`} alt="Live view from the Meta glasses" onError={() => setVideoFailed(true)} />
             )}
@@ -200,6 +223,7 @@ function RecordingPanel({ frame, sizeHW, elapsed, paused, onTogglePause, relay, 
 }
 
 export default function App() {
+  const [frameReceivedAt, setFrameReceivedAt] = useState(0);
   const [relay, setRelay] = useState(initialRelay);
   const [frame, setFrame] = useState(null);
   const [status, setStatus] = useState(relay ? "connecting" : "mock");
@@ -207,6 +231,7 @@ export default function App() {
   const [stepIndex, setStepIndex] = useState(0);
   const [startedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { setFrameReceivedAt(frame ? Date.now() : 0); }, [frame]);
 
   useEffect(() => {
     if (paused) return undefined;
@@ -248,14 +273,15 @@ export default function App() {
       onRelayChange={changeRelay}
     />
   );
-
   return (
     <div className="app">
       <h1 className="visually-hidden">ScavScrap scan dashboard</h1>
-      <div className="dashboard-workspace workspace-frame-palace">
+      <div className="dashboard-workspace workspace-frame-desk">
         <div className="workspace-layout">
           {recording}
-          <StepsPanel stepIndex={stepIndex} onStepChange={setStepIndex} />
+          <StepsPanel stepIndex={stepIndex} onStepChange={setStepIndex} mode="auto"
+            frame={frame} detectionLive={status === "live" && !paused}
+            detectionFresh={now - frameReceivedAt < 5000} />
           <BreadboardPanel stepIndex={stepIndex} />
         </div>
       </div>

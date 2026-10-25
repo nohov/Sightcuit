@@ -1,0 +1,29 @@
+.temporary-holograms {
+  flex: none;
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 2px dashed #b58a45;
+  color: #f5d27a;
+}
+.temporary-holograms-heading { max-width: 850px; margin-bottom: 24px; }
+.temporary-holograms-heading h2 { margin: 14px 0 10px; font-size: 25px; font-weight: 400; }
+.temporary-holograms-heading p { margin: 8px 0; color: #cdbb98; font-size: 17px; line-height: 1.5; }
+.temporary-holograms-heading .temporary-holograms-instructions { font-size: 15px; color: #b9a47e; }
+.temporary-display-badge {
+  display: inline-block;
+  width: fit-content;
+  padding: 6px 9px;
+  border: 1px solid #b58a45;
+  border-radius: 3px;
+  background: #352615;
+  color: #f5d27a;
+  font: 10px/1.4 "Courier New", monospace;
+  letter-spacing: 1px;
+}
+.temporary-holograms-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.temporary-hologram-card { min-width: 0; overflow: hidden; border: 1px solid #76552e; border-radius: 10px; background: #1a140e; }
+.temporary-hologram-card-heading { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; border-bottom: 1px solid #76552e66; }
+.temporary-hologram-card-heading h3 { margin: 0; color: #f5d27a; font-size: 17px; font-weight: 400; }
+.temporary-hologram-caption { margin: 0; padding: 13px 18px; border-top: 1px solid #76552e66; color: #cdbb98; font: 11px/1.5 "Courier New", monospace; }
+@media (max-width: 1100px) { .temporary-holograms-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .temporary-holograms-grid { grid-template-columns: minmax(0, 1fr); } }
