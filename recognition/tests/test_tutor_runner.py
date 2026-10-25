@@ -14,7 +14,7 @@ from recognition import tutor_runner as runner
 
 
 PROJECT = runner.load_project(runner.HERE.parent / "projects" / "led_resistor.json")
-PROMPT = (runner.HERE / "prompt-tutor-v5.txt").read_text(encoding="utf-8")
+PROMPT = (runner.HERE / "prompt-tutor-v6.txt").read_text(encoding="utf-8")
 TIERS = [{"provider": "gemini", "model": "cheap"}, {"provider": "openai", "model": "strong"}]
 JPEG = b"fake-jpeg"
 
@@ -177,6 +177,43 @@ class SessionTests(unittest.TestCase):
         self.assertIn("last step", t.handle("next", JPEG)[0])
         self.assertNotIn("not in this project", t.handle("brown black orange gold", None)[0])
 
+    def test_picking_an_offered_idea_asks_for_its_plan(self):
+        t, fakes = tutor([reply("A night light or a buzzer."), plan()])
+        t.remember("LED")
+        t.handle("what can I make with this", JPEG)
+        say, fields = t.handle("let's do the night light", JPEG)
+        self.assertEqual(fields["command"], "plan")
+        self.assertIn("Say yes to start it", say)
+        self.assertIn("Starting Night light. Step 1 of 2.", t.handle("yes", JPEG)[0])
+
+    def test_pick_words_without_offered_ideas_stay_step_questions(self):
+        t, _ = tutor([reply("Keep going.")])
+        self.assertIsNone(t.handle("let's do the night light", JPEG)[1]["command"])
+
+    def test_dashboard_shows_steps_progress_and_parts(self):
+        t, _ = tutor()
+        t.handle("red red brown gold", None)
+        view = t.dashboard()
+        self.assertEqual((view["project"], view["step_index"], view["parts"]),
+                         (PROJECT["title"], 0, ["220 ohms resistor"]))
+        self.assertEqual(view["steps"], [step["say"] for step in PROJECT["steps"]])
+        for _ in PROJECT["steps"]:
+            t.handle("next", None)
+        self.assertTrue(t.dashboard()["finished"])
+        t.handle("back", None)
+        self.assertFalse(t.dashboard()["finished"])
+
+    def test_dashboard_shows_confirmed_plan_parts_check_and_code(self):
+        t, _ = tutor([plan(code="void setup() {}")])
+        t.handle("I want to make a night light", JPEG)
+        t.handle("yes", JPEG)
+        view = t.dashboard()
+        self.assertEqual((view["check"], view["code"]), ("LED in row 5.", "void setup() {}"))
+        self.assertEqual(view["needed"], [{"part": "red LED", "have": True}, {"part": "220 ohm resistor", "have": True},
+                                          {"part": "photoresistor", "have": False}])
+        t.remember("Photoresistors")
+        self.assertTrue(t.dashboard()["needed"][2]["have"])
+
     def test_confirmed_plan_saves_its_sketch(self):
         with tempfile.TemporaryDirectory() as folder:
             fakes = {"gemini": FakeProvider("gemini", [plan(code="void setup() {}\nvoid loop() {}\n")]),
@@ -292,6 +329,23 @@ class TutorServerTests(unittest.TestCase):
         self.assertEqual(self.records[0]["image_size_hw_pixels"], [20, 30])
         self.assertEqual(self.records[0]["components"], [])
         self.assertEqual((self.records[0]["project_id"], self.records[0]["pending_plan"]), ("led_resistor", None))
+
+    def test_dashboard_streams_newest_frame(self):
+        jpeg = cv2.imencode(".jpg", np.zeros((20, 30, 3), dtype=np.uint8))[1].tobytes()
+        self.post("/frame", jpeg)
+        base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(f"{base}/events?token=wrong", timeout=5)
+        self.assertEqual(caught.exception.code, 401)
+        with urllib.request.urlopen(f"{base}/events?token=secret", timeout=5) as response:
+            event = json.loads(response.readline().decode().removeprefix("data: "))
+        self.assertEqual((event["image_size_hw_pixels"], event["tracks"]), ([20, 30], []))
+        self.assertEqual((event["tutor"]["step_index"], event["tutor"]["finished"]), (0, False))
+        with urllib.request.urlopen(f"{base}/stream.mjpg?token=secret", timeout=5) as response:
+            self.assertEqual(response.readline(), b"--frame\r\n")
+            while response.readline() != b"\r\n":
+                pass  # part headers
+            self.assertEqual(response.read(len(jpeg)), jpeg)
 
     def test_reply_carries_speech_or_falls_back(self):
         tutor_, _ = tutor([reply("Hi."), reply("Again.")])
