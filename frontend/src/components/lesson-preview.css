@@ -125,9 +125,14 @@
 .plan-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; flex: 1; min-height: 0; }
 .plan-workspace > * { min-height: 0; overflow-y: auto; }
 .lesson-step-list .part-need { color: var(--accent); font-weight: 600; }
-.parts-need-heading { margin: 10px 0 0; }
 .plan-detail { display: flex; flex-direction: column; gap: 8px; }
 .plan-detail h3 { margin: 0; }
 .plan-detail p { margin: 0; color: var(--text-soft); font-size: 17px; line-height: 1.4; }
 .plan-code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.plan-code-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 12px; flex: 1; min-height: 0; }
+@media (max-width: 950px) { .plan-code-body { grid-template-columns: minmax(0, 1fr); } }
+.ide-guide { min-height: 0; overflow-y: auto; color: var(--text-soft); font-size: 14px; line-height: 1.45; }
+.ide-guide summary { cursor: pointer; color: var(--text); }
+.ide-guide ol { margin: 6px 0 0; padding-left: 20px; }
+.ide-guide a { color: var(--accent); }
 .plan-code { margin: 0; padding: 10px; flex: 1; min-height: 80px; overflow: auto; font-size: 12px; line-height: 1.45; background: #0b0806; border: 1px solid var(--border); color: var(--text-soft); white-space: pre; }

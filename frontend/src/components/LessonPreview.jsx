@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./lesson-preview.css";
 
 // Local UI copy based on DESIGN.md v0.12. Navigation previews a prepared lesson;
@@ -60,13 +60,28 @@ export function ModelPreviewControls({ mode, onModeChange }) {
   );
 }
 
-// Live from the tutor's /events "tutor" field: the picked build's steps (finished ones crossed out) and every
-// part the user has had named. Null before the tutor sends anything, e.g. on the mock feed or live_runner.
+// Live from the tutor's /events "tutor" field: the picked build's steps (finished ones crossed out) and the
+// parts it needs, marked had once the tutor has named them. Scanned parts the build doesn't use are left out.
+// Null before the tutor sends anything, e.g. on the mock feed or live_runner.
 export function StepsPanel({ lesson }) {
   const steps = lesson?.steps || [];
-  const parts = lesson?.parts || [];
-  const need = (lesson?.needed || []).filter((item) => !item.have).map((item) => item.part);
+  const needed = lesson?.needed || [];
   const done = (i) => lesson.finished || i < lesson.step_index;
+  // On short screens the list scrolls; keep the current step in view. Scrolls only the list, never the page.
+  const currentRef = useRef(null);
+  useEffect(() => {
+    const reveal = () => {
+      const item = currentRef.current;
+      const scrolls = (el) => el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY);
+      let box = item?.parentElement; // the nearest box that scrolls: the list, or else the panel itself
+      while (box && !box.classList.contains("panel") && !scrolls(box)) box = box.parentElement;
+      if (!box) return;
+      const offset = item.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      if (offset < 0 || offset + item.offsetHeight > box.clientHeight) box.scrollTop += offset - 8;
+    };
+    reveal();
+    document.fonts?.ready.then(reveal); // web fonts change line heights after the first render
+  }, [lesson?.step_index, lesson?.project]);
   return (
     <section className="panel steps" aria-labelledby="steps-heading">
       <div className="lesson-step-layout">
@@ -75,7 +90,8 @@ export function StepsPanel({ lesson }) {
           {steps.length ? (
             <ol className="lesson-step-list">
               {steps.map((say, i) => (
-                <li key={i} className={done(i) ? "is-done" : i === lesson.step_index ? "is-current" : ""}
+                <li key={i} ref={i === lesson.step_index ? currentRef : null}
+                  className={done(i) ? "is-done" : i === lesson.step_index ? "is-current" : ""}
                   aria-current={!done(i) && i === lesson.step_index ? "step" : undefined}>
                   {done(i) ? <s>{say}</s> : say}
                 </li>
@@ -86,21 +102,20 @@ export function StepsPanel({ lesson }) {
           )}
         </div>
         <div className="lesson-step-main">
-          <h2 className="lesson-current-step">Parts found</h2>
-          {parts.length ? (
-            <ul className="lesson-step-list">{parts.map((part) => <li key={part}>{part}</li>)}</ul>
+          <h2 className="lesson-current-step">Parts Needed</h2>
+          {needed.length ? (
+            <ul className="lesson-step-list">
+              {needed.map(({ part, have }, i) => (
+                <li key={i} className={have ? "" : "part-need"}>
+                  <span aria-hidden="true">{have ? "✓ " : "✗ "}</span>{part}
+                  <span className="visually-hidden">{have ? " (have)" : " (missing)"}</span>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p className="lesson-why">Ask "what is this?" while looking at a part.</p>
-          )}
-          {need.length > 0 && (
-            <>
-              <h3 className="parts-need-heading">Still need</h3>
-              <ul className="lesson-step-list">
-                {need.map((part) => (
-                  <li key={part} className="part-need"><span aria-hidden="true">✗ </span>{part}</li>
-                ))}
-              </ul>
-            </>
+            <p className="lesson-why">
+              {steps.length ? "This project has no parts list." : "Pick a project to see the parts it needs."}
+            </p>
           )}
         </div>
       </div>
@@ -108,13 +123,13 @@ export function StepsPanel({ lesson }) {
   );
 }
 // Live from the tutor's confirmed plan: what the current step looks like when done, and any code the plan
-// wrote. The plan's still-needed parts are listed under Parts found.
+// wrote. The plan's parts, had and missing, are listed under Parts Needed.
 export function BreadboardPanel({ lesson }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => navigator.clipboard?.writeText(lesson.code).then(() => {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, () => {});
+  // The clipboard needs localhost or https; elsewhere Copy says so and the code can be selected by hand.
+  const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(lesson.code) : Promise.reject()).then(
+    () => setCopied("Copied"), () => setCopied("Copy failed: select the code below")).then(
+    () => setTimeout(() => setCopied(false), 2500));
   return (
     <section className="panel breadboard-panel" aria-label="Plan">
       <div className="plan-workspace">
@@ -126,9 +141,25 @@ export function BreadboardPanel({ lesson }) {
             <>
               <div className="plan-code-head">
                 <h3>Code</h3>
-                <button type="button" className="text-btn" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+                <button type="button" className="text-btn" onClick={copy}>{copied || "Copy"}</button>
               </div>
+              <div className="plan-code-body">
+              <details className="ide-guide" open>
+                <summary>How to put this code on the board</summary>
+                <ol>
+                  <li>
+                    Download the Arduino IDE from{" "}
+                    <a href="https://www.arduino.cc/en/software" target="_blank" rel="noreferrer">arduino.cc/en/software</a>,
+                    install it and open it.
+                  </li>
+                  <li>Plug the Arduino Uno into this computer with its USB cable.</li>
+                  <li>Choose <b>Tools → Board → Arduino Uno</b>, then <b>Tools → Port</b> and the port that names the Uno.</li>
+                  <li>Press <b>Copy</b> above. In the Arduino IDE choose <b>File → New Sketch</b>, click in the new sketch's code window, select everything in it (<b>⌘A</b> or <b>Ctrl+A</b>) and paste over it (<b>⌘V</b> or <b>Ctrl+V</b>).</li>
+                  <li>Press <b>Upload</b> (the → arrow) and wait for "Done uploading".</li>
+                </ol>
+              </details>
               <pre className="plan-code mono"><code>{lesson.code}</code></pre>
+              </div>
             </>
           )}
         </div>

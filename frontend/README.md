@@ -4,9 +4,11 @@ Steampunk dashboard with a vertical Meta glasses recording, a five-step LED
 lesson preview, and a conceptual breadboard drawing. The model circle renders
 drafting-style reference artwork for a supported component observation.
 
-The desktop layout has a compact rule for a 15-inch MacBook Pro sized browser
-window (about 1440 CSS pixels wide with 800 pixels of usable height). Shorter
-browser windows scroll instead of squeezing the lesson panels over each other.
+On desktop (wider than 950 CSS pixels) the dashboard fills the browser window
+at any size, and the 1440×800 desk frame stretches to match. Windows shorter
+than 640 pixels scroll instead of squeezing the lesson panels; on short screens
+the Steps list scrolls itself to the current step. Phone layouts are not
+supported.
 
 ## Run it
 
