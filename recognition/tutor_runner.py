@@ -29,11 +29,17 @@ from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
 
 
-PROMPT_VERSION = "tutor-v3"
+PROMPT_VERSION = "tutor-v5"
 HERE = Path(__file__).resolve().parent
 DEFAULT_CONFIG = HERE / "tutor_config.json"
+IDEAS_VERSION, PLAN_VERSION = "ideas-v2", "plan-v3"
+IDEAS_PROMPT = (HERE / f"prompt-{IDEAS_VERSION}.txt").read_text(encoding="utf-8")
+PLAN_PROMPT = (HERE / f"prompt-{PLAN_VERSION}.txt").read_text(encoding="utf-8")
 OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_ASK_BYTES = 4096
+# With no --project the tutor starts free: identify parts, ask for ideas, or request a build.
+NO_PROJECT = {"id": None, "title": None, "steps": [], "bom": []}
+NO_BUILD = "No build chosen yet. Show me a part and ask what is this, or tell me what you want to make."
 UNREADABLE = ("I can't tell reliably from this view. Hold it closer under good light and keep it still, "
               "or check it with the multimeter.")
 
@@ -42,18 +48,56 @@ GEMINI_SCHEMA = {
     "properties": {
         "answer": {"type": "STRING"},
         "step_done": {"type": "BOOLEAN", "nullable": True},
+        "component": {"type": "STRING", "nullable": True},
         "uncertain": {"type": "BOOLEAN"},
     },
-    "required": ["answer", "step_done", "uncertain"],
+    "required": ["answer", "step_done", "component", "uncertain"],
 }
 OPENAI_SCHEMA = {
     "type": "object",
     "properties": {
         "answer": {"type": "string"},
         "step_done": {"type": ["boolean", "null"]},
+        "component": {"type": ["string", "null"]},
         "uncertain": {"type": "boolean"},
     },
-    "required": ["answer", "step_done", "uncertain"],
+    "required": ["answer", "step_done", "component", "uncertain"],
+    "additionalProperties": False,
+}
+GEMINI_PLAN_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "answer": {"type": "STRING"},
+        "title": {"type": "STRING"},
+        "parts": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "missing": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "code": {"type": "STRING"},
+        "steps": {"type": "ARRAY", "items": {
+            "type": "OBJECT",
+            "properties": {"say": {"type": "STRING"}, "check": {"type": "STRING"}},
+            "required": ["say", "check"],
+        }},
+        "uncertain": {"type": "BOOLEAN"},
+    },
+    "required": ["answer", "title", "parts", "missing", "code", "steps", "uncertain"],
+}
+OPENAI_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "answer": {"type": "string"},
+        "title": {"type": "string"},
+        "parts": {"type": "array", "items": {"type": "string"}},
+        "missing": {"type": "array", "items": {"type": "string"}},
+        "code": {"type": "string"},
+        "steps": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"say": {"type": "string"}, "check": {"type": "string"}},
+            "required": ["say", "check"],
+            "additionalProperties": False,
+        }},
+        "uncertain": {"type": "boolean"},
+    },
+    "required": ["answer", "title", "parts", "missing", "code", "steps", "uncertain"],
     "additionalProperties": False,
 }
 
@@ -83,7 +127,7 @@ def openai_transport(payload: dict[str, Any], model: str, timeout: float) -> dic
     raise AssertionError("unreachable")
 
 
-def openai_payload(jpeg: bytes, prompt: str) -> dict[str, Any]:
+def openai_payload(jpeg: bytes, prompt: str, schema: dict[str, Any] = OPENAI_SCHEMA) -> dict[str, Any]:
     image = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")
     return {
         "messages": [{"role": "user", "content": [
@@ -91,7 +135,7 @@ def openai_payload(jpeg: bytes, prompt: str) -> dict[str, Any]:
             {"type": "image_url", "image_url": {"url": image}},
         ]}],
         "response_format": {"type": "json_schema",
-                            "json_schema": {"name": "tutor_reply", "strict": True, "schema": OPENAI_SCHEMA}},
+                            "json_schema": {"name": "tutor_reply", "strict": True, "schema": schema}},
     }
 
 
@@ -105,22 +149,43 @@ def openai_text(response: dict[str, Any]) -> str:
     return text
 
 
-# provider -> (build payload, extract text, usage key, model version key)
-PROVIDERS: dict[str, tuple[Callable[[bytes, str], dict[str, Any]], Callable[[dict[str, Any]], str], str, str]] = {
-    "gemini": (lambda jpeg, prompt: build_payload(jpeg, "image/jpeg", prompt, response_schema=GEMINI_SCHEMA),
+# provider -> (build payload for a plan or not, extract text, usage key, model version key)
+PROVIDERS: dict[str, tuple[Callable[[bytes, str, bool], dict[str, Any]], Callable[[dict[str, Any]], str], str, str]] = {
+    "gemini": (lambda jpeg, prompt, plan: build_payload(
+                   jpeg, "image/jpeg", prompt, response_schema=GEMINI_PLAN_SCHEMA if plan else GEMINI_SCHEMA),
                response_text, "usageMetadata", "modelVersion"),
-    "openai": (openai_payload, openai_text, "usage", "model"),
+    "openai": (lambda jpeg, prompt, plan: openai_payload(jpeg, prompt, OPENAI_PLAN_SCHEMA if plan else OPENAI_SCHEMA),
+               openai_text, "usage", "model"),
 }
 DEFAULT_TRANSPORTS: dict[str, Transport] = {"gemini": gemini_transport, "openai": openai_transport}
 
 
 def parse_reply(raw: Any) -> dict[str, Any]:
-    if not isinstance(raw, dict) or set(raw) != {"answer", "step_done", "uncertain"}:
-        raise ValueError("reply must contain exactly answer, step_done, uncertain")
+    if not isinstance(raw, dict) or set(raw) != {"answer", "step_done", "component", "uncertain"}:
+        raise ValueError("reply must contain exactly answer, step_done, component, uncertain")
     if not isinstance(raw["answer"], str) or not isinstance(raw["uncertain"], bool):
         raise ValueError("answer must be a string and uncertain a boolean")
     if raw["step_done"] is not None and not isinstance(raw["step_done"], bool):
         raise ValueError("step_done must be a boolean or null")
+    if raw["component"] is not None and not isinstance(raw["component"], str):
+        raise ValueError("component must be a string or null")
+    return raw
+
+
+def parse_plan(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or set(raw) != {"answer", "title", "parts", "missing", "code", "steps", "uncertain"}:
+        raise ValueError("plan must contain exactly answer, title, parts, missing, code, steps, uncertain")
+    if not all(isinstance(raw[key], str) for key in ("answer", "title", "code")) or not isinstance(raw["uncertain"], bool):
+        raise ValueError("answer, title and code must be strings and uncertain a boolean")
+    for key in ("parts", "missing"):
+        if not isinstance(raw[key], list) or not all(isinstance(part, str) for part in raw[key]):
+            raise ValueError(f"{key} must be a list of strings")
+    if not isinstance(raw["steps"], list) or not all(
+            isinstance(step, dict) and set(step) == {"say", "check"} and all(isinstance(v, str) for v in step.values())
+            for step in raw["steps"]):
+        raise ValueError("steps must be a list of {say, check} strings")
+    if not raw["uncertain"] and not (raw["parts"] and raw["steps"]):
+        raise ValueError("a certain plan needs parts and steps")
     return raw
 
 
@@ -146,6 +211,13 @@ COMMANDS = [
     ("repeat", re.compile(r"\b(repeat|again|what('s| is) the step|start)\b")),
     ("check", re.compile(r"\b(done|finished|check)\b")),
 ]
+# Session requests, matched before COMMANDS so "build a back-up alarm" is not "back".
+RESET = re.compile(r"\b(new session|start over)\b")
+# Answers while a plan waits for confirmation.
+CONFIRM = re.compile(r"\b(yes|yeah|yep|sure|okay|ok|start it|let's do it|let's go)\b")
+DECLINE = re.compile(r"\b(no|nope|cancel|never mind|nevermind|back out|go back|not that)\b")
+IDEAS = re.compile(r"\bwhat (can|could|should) i (make|build)\b")
+PLAN = re.compile(r"\b(i want to|i'd like to|how (do|can|would) i|(can|could) i|help me|let's) (make|build)\b")
 RESISTOR_QUESTION = re.compile(r"\b(resistors?|resistance|ohms?)\b")
 # Speech recognition writes either spelling.
 COLOR_WORDS = {**{color: color for color in COLORS}, "gray": "grey", "purple": "violet"}
@@ -154,18 +226,35 @@ ASK_BANDS = ("Tell me its band colors, starting from the end farthest from the g
 
 
 class Tutor:
-    def __init__(self, project: dict[str, Any], tiers: list[dict[str, str]], prompt: str,
-                 transports: dict[str, Transport] = DEFAULT_TRANSPORTS, timeout: float = 60.0) -> None:
+    def __init__(self, project: dict[str, Any] | None, tiers: list[dict[str, str]], prompt: str,
+                 transports: dict[str, Transport] = DEFAULT_TRANSPORTS, timeout: float = 60.0,
+                 sketch_dir: Path | None = None) -> None:
         self.project, self.tiers, self.prompt, self.transports, self.timeout = project, tiers, prompt, transports, timeout
-        self.step = 0
-        self.resistors = [part for part in project.get("bom", []) if part.get("part") == "resistor"]
+        self.sketch_dir = sketch_dir  # where a confirmed plan's Arduino sketch is saved
+        self.original = project or NO_PROJECT
+        self.reset()
+
+    def reset(self) -> None:
+        """Start a new session: the original project, step 1, no parts seen."""
+        # shortcut: the session lives in memory and ends with the process; persist it if sessions must survive restarts.
+        self.project, self.step, self.components = self.original, 0, []
+        self.pending: dict[str, Any] | None = None  # a plan that waits for the user's yes or no
+        self.resistors = [part for part in self.project.get("bom", []) if part.get("part") == "resistor"]
+
+    def remember(self, component: str) -> None:
+        if component.strip().lower() not in (seen.lower() for seen in self.components):
+            self.components.append(component.strip())
 
     def current(self) -> str:
         steps = self.project["steps"]
+        if not steps:
+            return NO_BUILD
         return f"Step {self.step + 1} of {len(steps)}. {steps[self.step]['say']}"
 
     def advance(self, delta: int) -> str:
         last = len(self.project["steps"]) - 1
+        if last < 0:
+            return NO_BUILD
         if delta > 0 and self.step == last:
             return "That was the last step. The circuit is finished."
         self.step = min(max(self.step + delta, 0), last)
@@ -173,7 +262,33 @@ class Tutor:
 
     def handle(self, text: str, jpeg: bytes | None) -> tuple[str, dict[str, Any]]:
         """Return what to say and the record fields for one spoken request."""
-        command = next((name for name, pattern in COMMANDS if pattern.search(text.lower())), None)
+        lowered = text.lower()
+        if RESET.search(lowered):
+            self.reset()
+            return "New session. " + self.current(), {"command": "reset", "attempts": []}
+        if self.pending and DECLINE.search(lowered):
+            title, self.pending = self.pending["title"], None
+            keep = f"Back to {self.project['title']}. " if self.project["title"] else ""
+            return f"Okay, not building {title}. {keep}{self.current()}", {"command": "decline", "attempts": []}
+        if self.pending and CONFIRM.search(lowered):
+            plan, self.pending = self.pending, None
+            self.project = {"id": "generated", "title": plan["title"], "steps": plan["steps"], "bom": []}
+            self.step, self.resistors = 0, []
+            return (f"Starting {plan['title']}. {self.save_sketch(plan)}{self.current()}",
+                    {"command": "confirm", "attempts": []})
+        session = next((name for name, pattern in (("ideas", IDEAS), ("plan", PLAN)) if pattern.search(lowered)), None)
+        if session == "ideas" and not self.components:
+            return "Show me some parts first and ask what is this.", {"command": session, "attempts": []}
+        if session and jpeg is None:
+            return "I don't have a camera frame yet.", {"command": session, "attempts": []}
+        if session:
+            prompt = ((IDEAS_PROMPT if session == "ideas" else PLAN_PROMPT)
+                      .replace("{components}", ", ".join(self.components) or "none yet").replace("{question}", text))
+            judge = self.adopt_plan if session == "plan" else lambda reply, attempt: (
+                (UNREADABLE, False) if reply["uncertain"] else (reply["answer"], True))
+            say, attempts = self.consult(prompt, jpeg, session == "plan", judge)
+            return say, {"command": session, "attempts": attempts}
+        command = next((name for name, pattern in COMMANDS if pattern.search(lowered)), None)
         if command == "next":
             return self.advance(1), {"command": command, "attempts": []}
         if command == "back":
@@ -186,11 +301,17 @@ class Tutor:
         if len(bands) >= 3:
             return self.resistor_value(bands), {"command": "bands", "bands": bands, "attempts": []}
         checking = command == "check"
+        if checking and not self.project["steps"]:
+            return NO_BUILD, {"command": command, "attempts": []}
         if not checking and RESISTOR_QUESTION.search(text.lower()):
             return ASK_BANDS, {"command": "ask_bands", "attempts": []}
         if jpeg is None:
             return "I don't have a camera frame yet.", {"command": command, "attempts": []}
-        say, attempts = self.consult(text, jpeg, checking)
+        say, attempts = self.consult(self.step_prompt(text), jpeg, False,
+                                     lambda reply, attempt: self.judge(reply, checking, attempt))
+        answered = [attempt["reply"] for attempt in attempts if "reply" in attempt]
+        if not checking and answered and answered[-1]["component"] and not answered[-1]["uncertain"]:
+            self.remember(answered[-1]["component"])
         return say, {"command": command, "attempts": attempts}
 
     def resistor_value(self, bands: list[str]) -> str:
@@ -202,21 +323,50 @@ class Tutor:
         for reading in found:
             for part in self.resistors:
                 if reading["ohms"] == part["value_ohms"]:
+                    self.remember(f"{spoken_ohms(reading['ohms'])} resistor")
                     return (f"{heard}. That's {spoken_ohms(reading['ohms'])}, plus or minus "
                             f"{reading['tolerance_pct']:g} percent. It's {part['ref']} in this project.")
+        self.remember(f"{spoken_ohms(found[0]['ohms'])} resistor")
         needed = ", ".join(f"{spoken_ohms(p['value_ohms'])} for {p['ref']}" for p in self.resistors)
         say = f"{heard}. That's {spoken_ohms(found[0]['ohms'])}, plus or minus {found[0]['tolerance_pct']:g} percent"
         if len(found) > 1:
             say += f", or {spoken_ohms(found[1]['ohms'])} read from the other end"
-        return say + ". That's not in this project." + (f" You need {needed}." if needed else "")
+        # A generated plan has no resistor BOM to compare against.
+        return say + "." + (f" That's not in this project. You need {needed}." if needed else "")
 
-    def consult(self, question: str, jpeg: bytes, checking: bool) -> tuple[str, list[dict[str, Any]]]:
-        step = self.project["steps"][self.step]
-        prompt = (self.prompt.replace("{project}", json.dumps(self.project))
-                  .replace("{step_number}", str(self.step + 1))
-                  .replace("{step_count}", str(len(self.project["steps"])))
-                  .replace("{step_say}", step["say"]).replace("{step_check}", step["check"])
-                  .replace("{question}", question))
+    def step_prompt(self, question: str) -> str:
+        steps = self.project["steps"]
+        step = steps[self.step] if steps else {"say": "none, no build chosen yet", "check": "none"}
+        return (self.prompt.replace("{project}", json.dumps(self.project))
+                .replace("{step_number}", str(self.step + 1))
+                .replace("{step_count}", str(len(self.project["steps"])))
+                .replace("{step_say}", step["say"]).replace("{step_check}", step["check"])
+                .replace("{components}", ", ".join(self.components) or "none yet")
+                .replace("{question}", question))
+
+    def save_sketch(self, plan: dict[str, Any]) -> str:
+        """Save a plan's Arduino code as name/name.ino, the folder layout the Arduino IDE requires; never run it."""
+        if not plan["code"].strip() or self.sketch_dir is None:
+            return ""
+        name = re.sub(r"[^a-z0-9]+", "_", plan["title"].lower()).strip("_") or "sketch"
+        path = self.sketch_dir / name / f"{name}.ino"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(plan["code"], encoding="utf-8")
+        return f"I saved its Arduino sketch on the laptop as {name}.ino in {self.sketch_dir.name}. "
+
+    def adopt_plan(self, plan: dict[str, Any], attempt: dict[str, Any]) -> tuple[str, bool]:
+        """Hold a model-generated build until the user says yes; the current build is untouched until then."""
+        if plan["uncertain"]:
+            return "I can't plan that as a safe beginner circuit. Try describing something simpler.", False
+        self.pending = plan
+        missing = (f"You still need {', '.join(plan['missing'])}." if plan["missing"]
+                   else "You have everything it needs.")
+        keep = f"keep building {self.project['title']}" if self.project["title"] else "back out"
+        return (f"{plan['answer']} It uses {', '.join(plan['parts'])}. {missing} "
+                f"Say yes to start it, or no to {keep}."), True
+
+    def consult(self, prompt: str, jpeg: bytes, plan: bool,
+                judge: Callable[[dict[str, Any], dict[str, Any]], tuple[str, bool]]) -> tuple[str, list[dict[str, Any]]]:
         attempts: list[dict[str, Any]] = []
         for index, tier in enumerate(self.tiers):
             last = index == len(self.tiers) - 1
@@ -225,17 +375,17 @@ class Tutor:
             attempts.append(attempt)
             started = time.perf_counter()
             try:
-                response = self.transports[tier["provider"]](build(jpeg, prompt), tier["model"], self.timeout)
+                response = self.transports[tier["provider"]](build(jpeg, prompt, plan), tier["model"], self.timeout)
                 attempt.update(usage=response.get(usage_key), model_version=response.get(version_key))
                 attempt["raw_response"] = text_of(response)
-                reply = attempt["reply"] = parse_reply(json.loads(attempt["raw_response"]))
+                reply = attempt["reply"] = (parse_plan if plan else parse_reply)(json.loads(attempt["raw_response"]))
             except Exception as exc:
                 attempt["error"] = f"{type(exc).__name__}: {exc}"
                 logging.exception("Tutor tier %d failed", index + 1)
                 continue
             finally:
                 attempt["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
-            say, final = self.judge(reply, checking, attempt)
+            say, final = judge(reply, attempt)
             if final or last:
                 return say, attempts
         return "I can't reach the model right now. Try again in a moment.", attempts
@@ -300,7 +450,9 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                 say, fields = tutor.handle(text, state["jpeg"])
                 write({**record_base, "timestamp": time.time(), "question": text, "image_size_hw_pixels":
                        state["image_size"] if fields["attempts"] else None, "step_before": step_before,
-                       "step_after": tutor.step, **fields, "say": say,
+                       "step_after": tutor.step, **fields, "components": list(tutor.components),
+                       "project_id": tutor.project.get("id"), "project_title": tutor.project.get("title"),
+                       "pending_plan": tutor.pending["title"] if tutor.pending else None, "say": say,
                        "elapsed_ms": round((time.perf_counter() - started) * 1000, 3)})
                 # The model whose reply produced `say`; null when none answered, so the phone never claims one did.
                 answered = [attempt["model"] for attempt in fields["attempts"] if "reply" in attempt]
@@ -316,7 +468,7 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="per-question JSONL output (appended)")
-    parser.add_argument("--project", required=True, type=Path)
+    parser.add_argument("--project", type=Path, help="start on this build; without it no build is chosen")
     parser.add_argument("--allow-upload", action="store_true",
                         help="confirm the frame current at each question may be uploaded to the configured providers")
     parser.add_argument("--listen", default="0.0.0.0:8765", metavar="HOST:PORT")
@@ -331,14 +483,20 @@ def main() -> None:
     for provider in {tier["provider"] for tier in tiers}:
         if not os.environ.get(f"{provider.upper()}_API_KEY"):
             parser.error(f"{provider.upper()}_API_KEY must be set in the environment")
+    # The relay's fixed token, so the phone stays connected across tutor restarts and switches from live_runner.
+    token = os.environ.get("SCAVSCRAP_RELAY_TOKEN") or secrets.token_hex(16)
+    if not re.fullmatch(r"[0-9a-f]{32,}", token):
+        parser.error("SCAVSCRAP_RELAY_TOKEN must be at least 32 lowercase hex characters")
 
-    project = load_project(args.project)
-    tutor = Tutor(project, tiers, (HERE / "prompt-tutor-v3.txt").read_text(encoding="utf-8"), timeout=args.timeout)
+    project = load_project(args.project) if args.project else NO_PROJECT
+    tutor = Tutor(project, tiers, (HERE / f"prompt-{PROMPT_VERSION}.txt").read_text(encoding="utf-8"),
+                  timeout=args.timeout, sketch_dir=args.output.parent / "sketches")
     command = start_logging(args.output, args.log)
     state: dict[str, Any] = {"jpeg": None, "image_size": None}
     record_base = {
-        "schema_version": "1.0.0", "task": "circuit_tutor", "project_id": project.get("id"),
-        "prompt_version": PROMPT_VERSION, "command": command,
+        "schema_version": "1.0.0", "task": "circuit_tutor",
+        "prompt_version": PROMPT_VERSION,
+        "ideas_prompt_version": IDEAS_VERSION, "plan_prompt_version": PLAN_VERSION, "command": command,
         "hardware": {"system": platform.system(), "machine": platform.machine()},
     }
     if args.camera is not None:
@@ -356,7 +514,6 @@ def main() -> None:
             destination.flush()
 
         host, _, port = args.listen.rpartition(":")
-        token = secrets.token_hex(16)
         server = make_tutor_server((host, int(port)), token, tutor, state, write, record_base)
         # Token goes to the terminal only, never the log file.
         print(f"tutor listening on {host}:{server.server_address[1]}; token {token}", flush=True)

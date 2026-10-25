@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -11,13 +13,20 @@ from recognition import tutor_runner as runner
 
 
 PROJECT = runner.load_project(runner.HERE.parent / "projects" / "led_resistor.json")
-PROMPT = (runner.HERE / "prompt-tutor-v3.txt").read_text(encoding="utf-8")
+PROMPT = (runner.HERE / "prompt-tutor-v5.txt").read_text(encoding="utf-8")
 TIERS = [{"provider": "gemini", "model": "cheap"}, {"provider": "openai", "model": "strong"}]
 JPEG = b"fake-jpeg"
 
 
-def reply(answer="ok", step_done=None, uncertain=False):
-    return {"answer": answer, "step_done": step_done, "uncertain": uncertain}
+def reply(answer="ok", step_done=None, uncertain=False, component=None):
+    return {"answer": answer, "step_done": step_done, "component": component, "uncertain": uncertain}
+
+
+def plan(uncertain=False, code="", steps=({"say": "Put the LED in row 5.", "check": "LED in row 5."},
+                                 {"say": "Add the resistor.", "check": "Resistor from row 5."})):
+    return {"answer": "That's a night light that turns on in the dark.", "title": "Night light",
+            "parts": ["red LED", "220 ohm resistor", "photoresistor"], "missing": ["photoresistor"] if steps else [], "code": code,
+            "steps": list(steps), "uncertain": uncertain}
 
 
 class FakeProvider:
@@ -121,6 +130,128 @@ class CascadeTests(unittest.TestCase):
         self.assertEqual(fakes["gemini"].calls, [])
 
 
+class SessionTests(unittest.TestCase):
+    """Mocked session checks; no model inference runs."""
+
+    def test_parts_seen_feed_what_can_i_make(self):
+        t, fakes = tutor([reply("That's an LED.", component="LED"), reply("A battery.", component="9V battery"),
+                          reply("Again an LED.", component="led"), reply("Build a flashlight.")])
+        for _ in range(3):
+            t.handle("what is this", JPEG)
+        self.assertEqual(t.components, ["LED", "9V battery"])
+        say, fields = t.handle("What can I make with these components?", JPEG)
+        self.assertEqual((say, fields["command"]), ("Build a flashlight.", "ideas"))
+        prompt = fakes["gemini"].calls[-1][0]["contents"][0]["parts"][1]["text"]
+        self.assertIn("LED, 9V battery", prompt)
+
+    def test_uncertain_and_check_replies_are_not_remembered(self):
+        t, _ = tutor([reply(uncertain=True, component="LED"), reply(step_done=False, component="LED")],
+                     [reply(uncertain=True, component="LED")])
+        t.handle("what is this", JPEG)
+        t.handle("check it", JPEG)
+        self.assertEqual(t.components, [])
+
+    def test_ideas_without_parts_cost_no_model_call(self):
+        t, fakes = tutor()
+        self.assertIn("Show me some parts", t.handle("what could I build", JPEG)[0])
+        self.assertEqual(fakes["gemini"].calls, [])
+
+    def test_spoken_bands_are_remembered(self):
+        t, _ = tutor()
+        t.handle("red red brown gold", None)
+        self.assertEqual(t.components, ["220 ohms resistor"])
+
+    def test_plan_lists_missing_parts_and_waits_for_yes(self):
+        t, fakes = tutor([plan()])
+        say, fields = t.handle("I want to make a night light", JPEG)
+        self.assertEqual(fields["command"], "plan")
+        self.assertIn("It uses red LED, 220 ohm resistor, photoresistor. You still need photoresistor.", say)
+        self.assertIn("Say yes to start it, or no to keep building Light an LED from a 5 volt supply.", say)
+        self.assertIs(t.project, PROJECT)
+        self.assertIn("missing", fakes["gemini"].calls[0][0]["generationConfig"]["responseSchema"]["properties"])
+        say, fields = t.handle("yes", JPEG)
+        self.assertEqual((say, fields["command"]), ("Starting Night light. Step 1 of 2. Put the LED in row 5.", "confirm"))
+        self.assertIsNone(t.pending)
+        self.assertIn("Step 2 of 2. Add the resistor.", t.handle("next", JPEG)[0])
+        self.assertIn("last step", t.handle("next", JPEG)[0])
+        self.assertNotIn("not in this project", t.handle("brown black orange gold", None)[0])
+
+    def test_confirmed_plan_saves_its_sketch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            fakes = {"gemini": FakeProvider("gemini", [plan(code="void setup() {}\nvoid loop() {}\n")]),
+                     "openai": FakeProvider("openai", [])}
+            t = runner.Tutor(None, TIERS, PROMPT, fakes, sketch_dir=Path(folder) / "sketches")
+            t.handle("can I make a night light", JPEG)
+            self.assertEqual(list(Path(folder).rglob("*.ino")), [])  # nothing saved before yes
+            say, _ = t.handle("yes", JPEG)
+            self.assertIn("night_light.ino", say)
+            self.assertIn("void loop()", (Path(folder) / "sketches" / "night_light" / "night_light.ino").read_text())
+
+    def test_step_prompt_lists_session_part_names(self):
+        t, fakes = tutor([reply(component="Arduino Uno"), reply(component="Arduino Uno")])
+        t.handle("what is this", JPEG)
+        t.handle("what is this", JPEG)
+        self.assertIn("named in this session: Arduino Uno", fakes["gemini"].calls[1][0]["contents"][0]["parts"][1]["text"])
+
+    def test_no_backs_out_and_keeps_the_current_build(self):
+        t, fakes = tutor([plan()])
+        t.handle("next", JPEG)
+        t.handle("let's make the night light", JPEG)
+        say, fields = t.handle("no, go back", JPEG)
+        self.assertEqual(fields["command"], "decline")
+        self.assertIn("Okay, not building Night light. Back to Light an LED from a 5 volt supply. Step 2 of 5", say)
+        self.assertEqual((t.project, t.step, t.pending), (PROJECT, 1, None))
+        self.assertIn("Step 1 of 5", t.handle("back", JPEG)[0])
+        self.assertEqual(len(fakes["gemini"].calls), 1)
+
+    def test_uncertain_or_invalid_plan_escalates_and_keeps_project(self):
+        t, fakes = tutor([plan(uncertain=True, steps=())], [plan(steps=())])
+        say, _ = t.handle("help me build a mains heater", JPEG)
+        self.assertIn("can't reach", say)
+        self.assertIs(t.project, PROJECT)
+        self.assertEqual(len(fakes["openai"].calls), 1)
+        t, _ = tutor([plan(uncertain=True, steps=())], [plan(uncertain=True, steps=())])
+        self.assertIn("can't plan that", t.handle("how do I make a taser", JPEG)[0])
+
+    def test_build_words_do_not_trigger_step_commands(self):
+        t, _ = tutor([plan()])
+        t.handle("how can I build a back-up alarm", JPEG)
+        self.assertEqual((t.step, t.pending["title"]), (0, "Night light"))
+
+    def test_new_session_resets(self):
+        t, _ = tutor([reply(component="LED"), plan()])
+        t.handle("what is this", JPEG)
+        t.handle("let's build a night light", JPEG)
+        t.handle("yes", JPEG)
+        say, _ = t.handle("new session", JPEG)
+        self.assertIn("Step 1 of 5", say)
+        self.assertEqual((t.components, t.step), ([], 0))
+        self.assertIs(t.project, PROJECT)
+        self.assertIsNone(t.pending)
+
+
+class NoProjectTests(unittest.TestCase):
+    """Mocked checks of a tutor started without a project; no model inference runs."""
+
+    def test_starts_with_no_build_and_steps_cost_nothing(self):
+        t, fakes = tutor()
+        t = runner.Tutor(None, TIERS, PROMPT, fakes)
+        for text in ("next", "back", "repeat", "I'm done"):
+            self.assertEqual(t.handle(text, JPEG)[0], runner.NO_BUILD)
+        self.assertEqual(fakes["gemini"].calls, [])
+        self.assertTrue(t.handle("red red brown gold", None)[0].endswith("220 ohms, plus or minus 5 percent."))
+
+    def test_what_is_this_then_plan_then_reset(self):
+        fakes = {"gemini": FakeProvider("gemini", [reply("An LED.", component="LED"), plan()]),
+                 "openai": FakeProvider("openai", [])}
+        t = runner.Tutor(None, TIERS, PROMPT, fakes)
+        self.assertEqual(t.handle("what is this", JPEG)[0], "An LED.")
+        self.assertIn("none, no build chosen yet", fakes["gemini"].calls[0][0]["contents"][0]["parts"][1]["text"])
+        self.assertIn("or no to back out", t.handle("I want to make a night light", JPEG)[0])
+        self.assertEqual(t.handle("nope", JPEG)[0], "Okay, not building Night light. " + runner.NO_BUILD)
+        self.assertEqual(t.handle("new session", JPEG)[0], "New session. " + runner.NO_BUILD)
+
+
 class TutorServerTests(unittest.TestCase):
     """Mocked HTTP checks; no model inference runs."""
 
@@ -158,6 +289,8 @@ class TutorServerTests(unittest.TestCase):
         self.assertIsNone(self.post("/ask", json.dumps({"text": "next"}).encode())[1]["model"])
         self.assertEqual(self.records[0]["question"], "what is this")
         self.assertEqual(self.records[0]["image_size_hw_pixels"], [20, 30])
+        self.assertEqual(self.records[0]["components"], [])
+        self.assertEqual((self.records[0]["project_id"], self.records[0]["pending_plan"]), ("led_resistor", None))
 
     def test_bad_bodies_rejected(self):
         self.assertEqual(self.post("/frame", b"not a jpeg")[0], 400)
