@@ -313,6 +313,43 @@ class TutorServerTests(unittest.TestCase):
         status, body = self.post("/ask", b'{"text":"again"}')
         self.assertEqual((status, body["audio_wav_base64"]), (200, None))
 
+    def test_spoken_ask_is_transcribed_or_handed_back(self):
+        tutor_, _ = tutor([reply("A breadboard.")])
+        heard = iter(["Tutor, what is this?", RuntimeError("ElevenLabs down"), "tutor"])
+
+        def transcribe(wav):
+            self.assertEqual(wav, b"RIFFwav")
+            result = next(heard)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        server = runner.make_tutor_server(("127.0.0.1", 0), "secret", tutor_, self.state, self.records.append,
+                                          {}, transcribe=transcribe)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+
+        def ask(port):
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/ask", data=b"RIFFwav", headers={
+                "Authorization": "Bearer secret", "Content-Type": "audio/wav"})
+            try:
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    return response.status
+            except urllib.error.HTTPError as error:
+                return error.code
+
+        self.assertEqual([ask(port), ask(port), ask(port)], [200, 503, 503])
+        self.assertEqual([(r["question"], r["question_source"]) for r in self.records],
+                         [("what is this", "elevenlabs")])
+        self.assertEqual(ask(self.server.server_address[1]), 503)  # no transcriber configured
+
+    def test_wake_question(self):
+        self.assertEqual(runner.wake_question("Um, tutor, next step."), "next step")
+        self.assertEqual(runner.wake_question("what is this"), "what is this")
+        self.assertEqual(runner.wake_question("Tutorial please"), "Tutorial please")
+
     def test_bad_bodies_rejected(self):
         self.assertEqual(self.post("/frame", b"not a jpeg")[0], 400)
         self.assertEqual(self.post("/ask", b"not json")[0], 400)

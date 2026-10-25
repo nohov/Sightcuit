@@ -15,6 +15,7 @@ from pathlib import Path
 import platform
 import re
 import secrets
+import string
 import sys
 import threading
 import time
@@ -27,7 +28,9 @@ import numpy as np
 
 from recognition.gemini_runner import RETRY_STATUSES, Transport, build_payload, gemini_transport, response_text
 from recognition.live_runner import MAX_RELAY_FRAME_BYTES, camera_frames
-from recognition.narrator import DEFAULT_TTS_MODEL, DEFAULT_VOICE, _write, elevenlabs_speak
+from recognition.narrator import (
+    DEFAULT_STT_MODEL, DEFAULT_TTS_MODEL, DEFAULT_VOICE, _write, elevenlabs_speak, elevenlabs_transcribe,
+)
 from recognition.resistor import COLORS, readings, spoken_ohms
 from recognition.runio import start_logging
 
@@ -40,6 +43,8 @@ IDEAS_PROMPT = (HERE / f"prompt-{IDEAS_VERSION}.txt").read_text(encoding="utf-8"
 PLAN_PROMPT = (HERE / f"prompt-{PLAN_VERSION}.txt").read_text(encoding="utf-8")
 OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 MAX_ASK_BYTES = 4096
+MAX_ASK_AUDIO_BYTES = 4 * 1024 * 1024  # the phone caps a recording at 30 s of 48 kHz 16-bit mono, about 2.9 MB
+WAKE_WORD = "tutor"  # same as Voice.wakeWord on the phone
 # With no --project the tutor starts free: identify parts, ask for ideas, or request a build.
 NO_PROJECT = {"id": None, "title": None, "steps": [], "bom": []}
 NO_BUILD = "No build chosen yet. Show me a part and ask what is this, or tell me what you want to make."
@@ -416,12 +421,20 @@ def cached_speak(text: str, directory: Path, speak: Callable[[str], bytes]) -> b
     return audio
 
 
+def wake_question(transcript: str) -> str:
+    """The words after the wake word, like the phone; the whole transcript when the wake word was misheard."""
+    match = re.search(rf"\b{WAKE_WORD}\b", transcript, re.IGNORECASE)
+    return (transcript[match.end():] if match else transcript).strip(string.punctuation + string.whitespace)
+
+
 def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state: dict[str, Any],
                       write: Callable[[dict[str, Any]], None], record_base: dict[str, Any],
-                      speak: Callable[[str], bytes] | None = None) -> ThreadingHTTPServer:
-    """POST /frame with a JPEG keeps the newest frame; POST /ask {"text"} answers one spoken request.
+                      speak: Callable[[str], bytes] | None = None,
+                      transcribe: Callable[[bytes], str] | None = None) -> ThreadingHTTPServer:
+    """POST /frame with a JPEG keeps the newest frame; POST /ask {"text"} or a WAV answers one spoken request.
 
     With speak, the reply carries the spoken WAV; without it, or if speaking fails, the phone uses its own voice.
+    A WAV ask is transcribed with transcribe; without it, or if that fails, a 503 asks the phone for its own text.
 
     shortcut: plain HTTP on the LAN behind a bearer token, like the detection relay; add TLS before shared networks.
     """
@@ -443,7 +456,8 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
             if not hmac.compare_digest(self.headers.get("Authorization", "").encode(), expected):
                 return self.reply(401, {"error": "bad token"})
             length = int(self.headers.get("Content-Length") or 0)
-            limit = MAX_RELAY_FRAME_BYTES if self.path == "/frame" else MAX_ASK_BYTES
+            spoken = self.path == "/ask" and self.headers.get("Content-Type", "").startswith("audio/")
+            limit = MAX_RELAY_FRAME_BYTES if self.path == "/frame" else MAX_ASK_AUDIO_BYTES if spoken else MAX_ASK_BYTES
             if not 0 < length <= limit:
                 return self.reply(400, {"error": "body missing or too large"})
             body = self.rfile.read(length)
@@ -454,17 +468,29 @@ def make_tutor_server(address: tuple[str, int], token: str, tutor: Tutor, state:
                 state["jpeg"], state["image_size"] = body, list(frame.shape[:2])
                 # Same shape as the detection relay's reply, so the existing iOS client decodes it unchanged.
                 return self.reply(200, {"tracks": [], "image_size_hw_pixels": state["image_size"]})
-            try:
-                text = json.loads(body)["text"]
-                if not isinstance(text, str) or not text.strip():
-                    raise ValueError
-            except (ValueError, KeyError, TypeError):
-                return self.reply(400, {"error": 'body must be JSON {"text": "..."}'})
+            if spoken:
+                if transcribe is None:
+                    return self.reply(503, {"error": "no ElevenLabs speech-to-text on the laptop"})
+                try:
+                    text = wake_question(transcribe(body))
+                except Exception:
+                    logging.exception("Transcription failed; the phone sends its own transcript")
+                    text = ""
+                if not text:
+                    return self.reply(503, {"error": "transcription failed or heard no question"})
+            else:
+                try:
+                    text = json.loads(body)["text"]
+                    if not isinstance(text, str) or not text.strip():
+                        raise ValueError
+                except (ValueError, KeyError, TypeError):
+                    return self.reply(400, {"error": 'body must be JSON {"text": "..."}'})
             with lock:
                 started = time.perf_counter()
                 step_before = tutor.step
                 say, fields = tutor.handle(text, state["jpeg"])
-                write({**record_base, "timestamp": time.time(), "question": text, "image_size_hw_pixels":
+                write({**record_base, "timestamp": time.time(), "question": text,
+                       "question_source": "elevenlabs" if spoken else "phone", "image_size_hw_pixels":
                        state["image_size"] if fields["attempts"] else None, "step_before": step_before,
                        "step_after": tutor.step, **fields, "components": list(tutor.components),
                        "project_id": tutor.project.get("id"), "project_title": tutor.project.get("title"),
@@ -500,6 +526,7 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--voice-id", default=DEFAULT_VOICE, help="ElevenLabs voice for spoken replies")
     parser.add_argument("--tts-model", default=DEFAULT_TTS_MODEL, help="ElevenLabs text-to-speech model")
+    parser.add_argument("--stt-model", default=DEFAULT_STT_MODEL, help="ElevenLabs speech-to-text model")
     parser.add_argument("--log", type=Path)
     args = parser.parse_args()
     if not args.allow_upload:
@@ -524,14 +551,16 @@ def main() -> None:
         "ideas_prompt_version": IDEAS_VERSION, "plan_prompt_version": PLAN_VERSION, "command": command,
         "hardware": {"system": platform.system(), "machine": platform.machine()},
     }
-    speak = None
+    speak = transcribe = None
     if os.environ.get("ELEVENLABS_API_KEY"):
-        # Only the reply text goes to ElevenLabs; the question audio stays on the phone.
+        # Reply text goes to text-to-speech; only utterances the phone heard the wake word in go to speech-to-text.
         voice_dir = HERE.parent / "cache" / "tts" / f"{args.voice_id}_{args.tts_model}"
         speak = lambda text: cached_speak(text, voice_dir, lambda t: elevenlabs_speak(t, args.voice_id, args.tts_model))
+        transcribe = lambda wav: elevenlabs_transcribe(wav, args.stt_model, args.timeout)
         record_base["tts"] = f"elevenlabs:{args.voice_id}/{args.tts_model}"
+        record_base["stt"] = f"elevenlabs:{args.stt_model}"
     else:
-        record_base["tts"] = None
+        record_base["tts"] = record_base["stt"] = None
         print("Voice: Apple on-device (set ELEVENLABS_API_KEY for ElevenLabs)", file=sys.stderr)
     if args.camera is not None:
         def read_camera() -> None:
@@ -548,7 +577,7 @@ def main() -> None:
             destination.flush()
 
         host, _, port = args.listen.rpartition(":")
-        server = make_tutor_server((host, int(port)), token, tutor, state, write, record_base, speak)
+        server = make_tutor_server((host, int(port)), token, tutor, state, write, record_base, speak, transcribe)
         # Token goes to the terminal only, never the log file.
         print(f"tutor listening on {host}:{server.server_address[1]}; token {token}", flush=True)
         print(tutor.current(), flush=True)

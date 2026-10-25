@@ -29,6 +29,7 @@ struct TutorReply: Decodable {
 
 struct RelayError: LocalizedError {
   let errorDescription: String?
+  var status = 0
 }
 
 /// POSTs JPEG frames to `recognition.live_runner --listen` with at most one request in flight.
@@ -48,26 +49,35 @@ final class RelayClient {
   }
 
   /// Sends one spoken request to the tutor; the laptop answers about the newest frame it has.
-  func ask(_ text: String, done: @escaping @MainActor (Result<TutorReply, Error>) -> Void) {
+  /// With `audio` the laptop transcribes it with ElevenLabs; `text`, the phone's own transcript, goes when it cannot.
+  func ask(_ text: String, audio: Data? = nil, done: @escaping @MainActor (Result<TutorReply, Error>) -> Void) {
     guard let askEndpoint else { return done(.failure(RelayError(errorDescription: "Relay host is not a valid URL"))) }
-    var request = URLRequest(url: askEndpoint, timeoutInterval: 90)  // may wait on two model tiers
-    request.httpMethod = "POST"
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     Task {
       do {
-        let body = try JSONEncoder().encode(["text": text])
-        let (data, response) = try await URLSession.shared.upload(for: request, from: body)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard status == 200 else {
-          let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "no detail"
-          throw RelayError(errorDescription: "Tutor HTTP \(status): \(message)")
+        if let audio {
+          do {
+            return done(.success(try await post(audio, type: "audio/wav", to: askEndpoint)))
+          } catch let error as RelayError where error.status == 503 {}  // no ElevenLabs or nothing heard
         }
-        done(.success(try JSONDecoder().decode(TutorReply.self, from: data)))
+        done(.success(try await post(try JSONEncoder().encode(["text": text]), type: "application/json", to: askEndpoint)))
       } catch {
         done(.failure(error))
       }
     }
+  }
+
+  private func post(_ body: Data, type: String, to url: URL) async throws -> TutorReply {
+    var request = URLRequest(url: url, timeoutInterval: 90)  // may wait on transcription and two model tiers
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue(type, forHTTPHeaderField: "Content-Type")
+    let (data, response) = try await URLSession.shared.upload(for: request, from: body)
+    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+    guard status == 200 else {
+      let message = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] ?? "no detail"
+      throw RelayError(errorDescription: "Tutor HTTP \(status): \(message)", status: status)
+    }
+    return try JSONDecoder().decode(TutorReply.self, from: data)
   }
 
   /// Drops the frame when the previous one is still in flight; the laptop only wants the newest frame anyway.

@@ -8,6 +8,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 from typing import Any, Callable
@@ -19,9 +20,11 @@ from recognition.gemini_runner import Transport, gemini_transport, response_text
 
 HERE = Path(__file__).resolve().parent
 PROMPT_VERSION = "describe-v1"
-DEFAULT_VOICE = "JBFqnCBsd6RMkjVDRZzb"  # premade voice used in ElevenLabs' API docs
+DEFAULT_VOICE = "IbXTsH7MlHi5GQco8zZH"  # team-chosen ElevenLabs voice
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"  # lowest latency and price per character
 TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=wav_22050"  # WAV plays without codecs
+DEFAULT_STT_MODEL = "scribe_v2"
+STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 MAX_DESCRIPTION_CHARS = 600
 
 
@@ -39,26 +42,41 @@ def gemini_describe(label: str, model: str, timeout: float = 60.0, transport: Tr
     return text
 
 
-def elevenlabs_speak(text: str, voice: str, model: str, timeout: float = 60.0) -> bytes:
+def _elevenlabs(url: str, data: bytes, content_type: str, timeout: float) -> bytes:
     key = os.environ.get("ELEVENLABS_API_KEY")
     if not key:
         raise RuntimeError("ELEVENLABS_API_KEY is not set")
-    request = Request(
-        TTS_URL.format(voice=voice),
-        data=json.dumps({"text": text, "model_id": model}).encode("utf-8"),
-        headers={"Content-Type": "application/json", "xi-api-key": key},
-        method="POST",
-    )
+    request = Request(url, data=data, headers={"Content-Type": content_type, "xi-api-key": key}, method="POST")
     try:
         with urlopen(request, timeout=timeout) as response:
-            audio = response.read()
+            return response.read()
     except HTTPError as exc:
         raise RuntimeError(f"ElevenLabs HTTP {exc.code}: {exc.read().decode('utf-8', errors='replace')[:300]}") from None
     except URLError as exc:
         raise RuntimeError(f"ElevenLabs connection failed: {exc.reason}") from None
+
+
+def elevenlabs_speak(text: str, voice: str, model: str, timeout: float = 60.0) -> bytes:
+    data = json.dumps({"text": text, "model_id": model}).encode("utf-8")
+    audio = _elevenlabs(TTS_URL.format(voice=voice), data, "application/json", timeout)
     if audio[:4] != b"RIFF":
         raise ValueError("ElevenLabs did not return WAV audio")
     return audio
+
+
+def elevenlabs_transcribe(wav: bytes, model: str, timeout: float = 60.0) -> str:
+    """English transcript of one WAV utterance."""
+    boundary = secrets.token_hex(16)
+    fields = {"model_id": model, "language_code": "en", "tag_audio_events": "false"}
+    body = b"".join(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+                    for name, value in fields.items())
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="ask.wav"\r\n'
+             "Content-Type: audio/wav\r\n\r\n").encode() + wav + f"\r\n--{boundary}--\r\n".encode()
+    raw = _elevenlabs(STT_URL, body, f"multipart/form-data; boundary={boundary}", timeout)
+    text = json.loads(raw).get("text")
+    if not isinstance(text, str):
+        raise ValueError("ElevenLabs returned no transcript text")
+    return text.strip()
 
 
 def play_wav(path: Path) -> Any:
