@@ -1,5 +1,6 @@
 import MWDATCamera
 import MWDATCore
+import MWDATInputs
 import SwiftUI
 #if DEBUG
 import MWDATMockDevice
@@ -16,6 +17,9 @@ final class GlassesController: ObservableObject {
   @Published var relayError: String?
 
   let relay = RelayClient()
+  /// Short press of the glasses capture button: the tutor's tangible "step done" press. The stream keeps running.
+  var onCapture: (() -> Void)?
+  private var inputTask: Task<Void, Never>?
   private var session: DeviceSession?
   private var camera: Camera?
   private let tokens = ListenerTokenBag()
@@ -97,6 +101,7 @@ final class GlassesController: ObservableObject {
       observe(camera.stream)
       camera.stream.start()
       status = ""
+      attachCaptureButton(session)
     } catch {
       // Leftover sessions make the next Start fail with sessionAlreadyExists.
       stop()
@@ -104,7 +109,34 @@ final class GlassesController: ObservableObject {
     }
   }
 
+  /// Inputs is experimental and must be enabled for this app in Wearables Developer Center; without it the
+  /// stream still runs and only the button is missing.
+  private func attachCaptureButton(_ session: DeviceSession) {
+    do {
+      // The system keeps Back; the tutor only needs the capture button.
+      guard let inputs = try session.addInputs(configuration: InputsConfiguration(consumeBack: false)) else {
+        status = "These glasses report no inputs; say \"tutor, done\" instead of pressing capture"
+        return
+      }
+      let events = inputs.events
+      inputTask = Task { [weak self] in
+        for await event in events {
+          // Long and double presses stay with the glasses; only a short capture press means "step done".
+          if case let .capture(press, source, _) = event, press == .shortPress, source == .captureButton {
+            self?.onCapture?()
+          }
+        }
+      }
+    } catch {
+      status = "Capture button unavailable (enable Inputs in Wearables Developer Center): \(error.localizedDescription)"
+    }
+  }
+
   func stop() {
+    // Cancel the event task before removing Inputs, as the DAT docs require.
+    inputTask?.cancel()
+    inputTask = nil
+    try? session?.removeInputs()
     camera?.stop()
     session?.stop()
     tokens.clear()

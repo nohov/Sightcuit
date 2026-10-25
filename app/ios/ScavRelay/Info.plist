@@ -49,6 +49,10 @@
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>ScavRelay connects to your Meta glasses over Bluetooth to stream their camera.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ScavRelay listens for questions to the circuit tutor through your glasses microphone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ScavRelay turns your questions into text on this iPhone; only the text after "tutor" is sent to your laptop.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ScavRelay sends glasses camera frames to your laptop on the local network for device recognition.</string>
 	<key>NSAppTransportSecurity</key>

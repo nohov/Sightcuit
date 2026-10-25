@@ -118,6 +118,28 @@ so a full run needs billing enabled.
 matching. The decision rule is frozen in `evaluation/bakeoff_report_template.md`
 before any run.
 
+## Circuit tutor (separate track)
+
+A voice-guided breadboard tutor reuses the glasses relay. Cost is the design
+constraint:
+- Frames stream to the laptop for free. A cloud model sees one frame only when
+  the user asks a question or presses the capture button.
+- Speech in and out is on-device on the iPhone.
+- `recognition/tutor_config.json` freezes a cheap tier (Gemini 3.5 Flash-Lite)
+  and a stronger tier (Gemini 3.8 Flash) that runs only when the cheap answer is
+  uncertain, invalid, or not in the project BOM. OpenAI models are supported in
+  the same slots.
+
+The model reports resistor color bands. `recognition/resistor.py` turns them
+into ohms and tries both reading directions. A value outside the BOM, or
+unreadable bands, is spoken as such and never guessed. Gemini 3.8 Live and
+OpenAI Realtime, which stream continuously, cost far more per hour (see the
+plan's price table) and are left as an opt-in later.
+
+A trained YOLO for circuit parts is gated on owner approval to train and on a
+labelled dataset. No tutor accuracy is claimed until an owner-collected resistor
+photo set is scored.
+
 ## Stop conditions
 
 Do not install dependencies, download weights, use paid inference, start cloud

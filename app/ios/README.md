@@ -30,7 +30,10 @@ Meta AI's update screen; re-enable Developer Mode after updating.
 3. Build Settings > Info.plist File: `ScavRelay/Info.plist`; turn off
    "Generate Info.plist File".
 4. File > Add Package Dependencies: `https://github.com/facebook/meta-wearables-dat-ios`,
-   add `MWDATCore`, `MWDATCamera`, and `MWDATMockDevice` to the target.
+   add `MWDATCore`, `MWDATCamera`, `MWDATInputs`, and `MWDATMockDevice` to the target.
+   For the tutor's capture button, also enable the experimental Inputs
+   capability for this app in Wearables Developer Center. Without it, the stream
+   still runs and the app says to use "tutor, done" instead.
 5. Signing & Capabilities: pick your team. `TeamID` in `Info.plist` comes from `$(DEVELOPMENT_TEAM)`.
 6. Optional, for the simulator: add a permitted local clip as `mock-feed.mp4` to the
    target. DEBUG builds then show "Use mock glasses".
@@ -69,6 +72,34 @@ Boxes appear on the phone, and new lines land in
 
 The laptop opens a "scavscrap relay" window showing the newest glasses frame with
 the last finished boxes; press `q` in it to stop. Add `--no-display` to run headless.
+
+## Circuit tutor
+
+Run the tutor on the laptop instead of `live_runner`. The app is the same and so
+is the frame path; `/frame` returns no boxes.
+
+```sh
+set -a; . ./.env; set +a
+.venv/bin/python -m recognition.tutor_runner evaluation/tutor_log.jsonl \
+  --project projects/led_resistor.json --allow-upload
+```
+
+Enter the printed token, start streaming, then tap "Start listening".
+
+- **Ask:** say "tutor, which resistor is this?" with the part in view. Speech is
+  recognized on the iPhone, and only the words after "tutor" go to the laptop.
+  The laptop sends the newest frame to the cheap model tier, and to the stronger
+  tier only when the cheap answer is uncertain or its reading is not in the
+  project. Replies are spoken on the phone, through the glasses when they are
+  the Bluetooth audio route.
+- **Step done:** a short press of the glasses capture button. The stream keeps
+  running. The laptop checks the newest frame against the current step and moves
+  on only if the model confirms it. "tutor, next" skips without a check, and
+  "tutor, repeat" and "tutor, back" also cost no model call.
+
+Not yet verified on hardware: whether a short capture press also saves a photo
+to the wearer's camera roll, and whether the glasses mic and speakers take over
+the audio route through HFP.
 
 ## Troubleshooting
 
